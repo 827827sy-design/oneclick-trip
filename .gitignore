@@ -1,0 +1,23 @@
+frontend/node_modules/
+frontend/dist/
+frontend/dev-server.log
+frontend/dev-server.err
+backend/target/
+.m2-repository/
+.npm-cache/
+tools/*.log
+.idea/
+*.iml
+*.log
+logs/
+
+# Local-only credentials and machine-specific config
+.env
+.env.*
+backend/maven-settings.xml
+backend/src/main/resources/application.yml
+backend/src/main/resources/application-local.yml
+
+# OS/editor files
+.DS_Store
+Thumbs.db

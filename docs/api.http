@@ -1,0 +1,43 @@
+### 健康检查
+GET http://localhost:8080/api/health
+
+### 登录
+POST http://localhost:8080/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "123456"
+}
+
+### 城市列表
+GET http://localhost:8080/api/cities
+
+### 成都景点
+GET http://localhost:8080/api/cities/1/spots
+
+### 成都美食
+GET http://localhost:8080/api/cities/1/foods
+
+### 规则版生成行程
+POST http://localhost:8080/api/trip-plans/generate
+Content-Type: application/json
+
+{
+  "departureCity": "南京",
+  "cityId": 1,
+  "days": 3,
+  "peopleCount": 2,
+  "budgetLevel": "MEDIUM",
+  "pace": "RELAXED",
+  "interests": ["美食", "轻松"]
+}
+
+### AI 助手占位
+POST http://localhost:8080/api/ai/chat
+Content-Type: application/json
+
+{
+  "message": "我想从南京去成都玩 3 天"
+}
+
