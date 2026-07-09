@@ -2,6 +2,8 @@ frontend/node_modules/
 frontend/dist/
 frontend/dev-server.log
 frontend/dev-server.err
+frontend-admin/node_modules/
+frontend-admin/dist/
 backend/target/
 .m2-repository/
 .npm-cache/
@@ -16,7 +18,9 @@ logs/
 .env.*
 backend/maven-settings.xml
 backend/src/main/resources/application.yml
+backend/src/main/resources/application.yaml
 backend/src/main/resources/application-local.yml
+backend/src/main/resources/application-local.yaml
 
 # OS/editor files
 .DS_Store
