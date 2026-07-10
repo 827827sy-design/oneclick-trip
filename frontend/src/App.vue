@@ -1,468 +1,720 @@
 <template>
-  <div class="prototype-stage">
-    <aside class="project-panel">
-      <div class="project-brand">
-        <span>🧭</span>
-        <div>
-          <strong>一键游</strong>
-          <small>Vue 3 + Spring Boot MVP</small>
-        </div>
-      </div>
-      <p>
-        当前界面沿用之前的小程序原型。AI 助手先保留入口，真实能力后续接入 FastAPI。
-      </p>
-      <div class="status-card">
-        <span>后端状态</span>
-        <strong :class="{ ok: backendOnline }">{{ backendOnline ? '已连接' : '使用本地演示数据' }}</strong>
-      </div>
-      <div class="status-card">
-        <span>生成方式</span>
-        <strong>规则版</strong>
-      </div>
-      <div class="status-card">
-        <span>登录状态</span>
-        <strong :class="{ ok: isAuthenticated }">{{ isAuthenticated ? currentUser?.nickname || '已登录' : '等待登录' }}</strong>
-      </div>
-    </aside>
-
-    <main class="phone-frame">
-      <div class="status-bar">
-        <span class="time">9:41</span>
-        <span class="status-icons">5G ▮▮▮▮ 🔋 85%</span>
-      </div>
-
-      <!-- 登录页：未登录时默认展示，登录成功后进入首页。 -->
-      <section class="page login-page" :class="{ active: activePage === 'login' }">
-        <div class="login-hero">
-          <div class="login-brand">
-            <span>🧭</span>
-            <div>
-              <strong>一键游</strong>
-              <small>登录后继续生成你的旅行攻略</small>
+  <div class="app-stage">
+    <main class="app-shell" aria-label="一键游移动端预览">
+      <div class="screen-stack">
+        <section v-if="activePage === 'login'" class="screen login-screen">
+          <div class="login-visual">
+            <div class="login-brand">
+              <span class="brand-mark"><el-icon><Compass /></el-icon></span>
+              <span>一键游</span>
             </div>
-          </div>
-          <div class="login-copy">
-            <span>国内游 · 智能行程</span>
-            <h1>把想去的地方，变成能出发的路线</h1>
-            <p>保存偏好、行程和城市资料，后续 AI 助手会基于你的旅行方式继续优化方案。</p>
-          </div>
-        </div>
-
-        <form class="login-form" @submit.prevent="handleLogin">
-          <label>
-            <span>账号</span>
-            <input v-model.trim="loginForm.username" autocomplete="username" placeholder="admin 或 user" />
-          </label>
-          <label>
-            <span>密码</span>
-            <input v-model="loginForm.password" autocomplete="current-password" placeholder="请输入密码" type="password" />
-          </label>
-          <p v-if="loginError" class="login-error">{{ loginError }}</p>
-          <button class="login-button" type="submit" :disabled="loginLoading">
-            {{ loginLoading ? '登录中...' : '登录并开始规划' }}
-          </button>
-          <div class="demo-account">
-            <span>体验账号</span>
-            <button type="button" @click="fillDemoAccount('admin')">admin / 123456</button>
-            <button type="button" @click="fillDemoAccount('user')">user / 123456</button>
-          </div>
-        </form>
-      </section>
-
-      <!-- 首页：AI 入口、热门目的地、精选行程模板都在这里。 -->
-      <section class="page" :class="{ active: activePage === 'home' }">
-        <div class="nav-bar nav-split">
-          <span class="brand-title">🧭 一键游</span>
-          <span class="nav-muted">{{ currentUser?.nickname || 'AI 旅行管家' }}</span>
-        </div>
-
-        <div class="ai-hero">
-          <div class="pill">国内游 · 懒人攻略生成</div>
-          <h1>说一句想去哪，剩下交给 AI</h1>
-          <p>先问清你的旅行偏好，再查景点、路线、预算，生成能直接出门用的攻略。</p>
-          <button class="hero-input" type="button" @click="go('planner')">
-            <span>例如：从南京去成都玩 3 天，轻松一点，喜欢美食</span>
-            <b>开始规划</b>
-          </button>
-        </div>
-
-        <div class="home-steps">
-          <div class="home-step"><strong>1</strong><span>问偏好<br />少填表</span></div>
-          <div class="home-step"><strong>2</strong><span>查资料<br />看路线</span></div>
-          <div class="home-step"><strong>3</strong><span>出方案<br />可修改</span></div>
-        </div>
-
-        <div class="home-actions">
-          <button class="quick-item" type="button" @click="go('planner')">
-            <span class="quick-icon blue">🗺️</span>
-            <span>补全信息</span>
-          </button>
-          <button class="quick-item" type="button" @click="go('chat')">
-            <span class="quick-icon green">💬</span>
-            <span>继续问 AI</span>
-          </button>
-          <button class="quick-item" type="button" @click="goGuide('dest', selectedCityKey)">
-            <span class="quick-icon yellow">🏔️</span>
-            <span>景点攻略</span>
-          </button>
-          <button class="quick-item" type="button" @click="goGuide('food', selectedCityKey)">
-            <span class="quick-icon orange">🍜</span>
-            <span>美食</span>
-          </button>
-        </div>
-
-        <div class="section-title">🔥 热门目的地</div>
-        <div class="dest-scroll">
-          <button
-            v-for="(city, index) in displayCities"
-            :key="city.id"
-            class="dest-card"
-            type="button"
-            @click="goGuide('dest', city.key)"
-          >
-            <span v-if="index === 0" class="tag">热门 TOP1</span>
-            <span class="bg" :style="{ background: destinationBackground(city, index) }">
-              <b>{{ city.name }}</b>
-              <small>{{ city.summaryShort }}</small>
-            </span>
-          </button>
-        </div>
-
-        <div class="section-title">⭐ 精选行程模板</div>
-        <button class="trip-card" type="button" @click="go('trip')">
-          <span class="cover" :style="{ background: chengduCover }">
-            <b>成都3日经典游</b>
-          </span>
-          <span class="info">
-            <strong>🐼 熊猫 + 火锅 + 古蜀文化</strong>
-            <small>📍 成都 · 📅 3天2晚 · 💰 约3000元</small>
-          </span>
-        </button>
-        <button class="trip-card" type="button" @click="toastText = '大理模板下一阶段开放'">
-          <span class="cover gradient-blue">
-            <b>大理丽江5日慢生活</b>
-          </span>
-          <span class="info">
-            <strong>🏔️ 苍山洱海 + 丽江古城 + 玉龙雪山</strong>
-            <small>📍 云南 · 📅 5天4晚 · 💰 约5000元</small>
-          </span>
-        </button>
-      </section>
-
-      <!-- AI 助手页：当前只接 Java 占位接口，真实 AI 后续再接 FastAPI。 -->
-      <section class="page" :class="{ active: activePage === 'chat' }">
-        <div class="nav-bar">
-          <button class="back" type="button" @click="go('home')">‹</button>
-          <span>AI 旅游助手</span>
-          <button class="action" type="button" @click="go('planner')">规划</button>
-        </div>
-        <div class="chat-shell">
-          <div class="msg ai">
-            <span class="avatar">🤖</span>
-            <div class="bubble">
-              AI 助手先空出来。当前版本先完成城市资料、景点、美食、酒店和规则版行程生成。
-            </div>
-          </div>
-          <div v-if="aiReply" class="msg ai">
-            <span class="avatar">🧭</span>
-            <div class="bubble">{{ aiReply }}</div>
-          </div>
-        </div>
-        <div class="quick-btns">
-          <button type="button" @click="callAiPlaceholder('我想从南京去成都玩 3 天')">测试占位接口</button>
-          <button type="button" @click="go('planner')">去生成行程</button>
-        </div>
-        <div class="chat-input">
-          <input v-model="aiInput" placeholder="AI 暂未接入，先保留输入框" @keydown.enter="callAiPlaceholder(aiInput)" />
-          <button type="button" @click="callAiPlaceholder(aiInput)">↑</button>
-        </div>
-      </section>
-
-      <!-- 规划页：收集出发城市、目的地、天数、预算、人数和偏好。 -->
-      <section class="page" :class="{ active: activePage === 'planner' }">
-        <div class="nav-bar">
-          <button class="back" type="button" @click="go('home')">‹</button>
-          <span>一键生成攻略</span>
-        </div>
-        <div class="planner-form">
-          <div class="form-card">
-            <h3>📍 基础信息</h3>
-            <label>出发城市</label>
-            <input v-model="planForm.departureCity" class="form-input" />
-            <div class="form-row">
-              <div>
-                <label>目的地</label>
-                <select v-model="planForm.cityId" class="form-input" @change="selectCityById(planForm.cityId)">
-                  <option v-for="city in displayCities" :key="city.id" :value="city.id">{{ city.name }}</option>
-                </select>
-              </div>
-              <div>
-                <label>出行天数</label>
-                <select v-model.number="planForm.days" class="form-input">
-                  <option :value="2">2天</option>
-                  <option :value="3">3天</option>
-                  <option :value="4">4天</option>
-                  <option :value="5">5天</option>
-                </select>
-              </div>
-            </div>
-            <div class="form-row">
-              <div>
-                <label>预算</label>
-                <select v-model="planForm.budgetLevel" class="form-input">
-                  <option value="LOW">经济</option>
-                  <option value="MEDIUM">适中</option>
-                  <option value="HIGH">舒适</option>
-                </select>
-              </div>
-              <div>
-                <label>人数</label>
-                <select v-model.number="planForm.peopleCount" class="form-input">
-                  <option :value="1">1人</option>
-                  <option :value="2">2人</option>
-                  <option :value="3">3人</option>
-                  <option :value="4">4人</option>
-                </select>
-              </div>
+            <div class="login-copy">
+              <span class="eyebrow">YOUR TRIP, READY</span>
+              <h1>少做攻略，<br />多去看看。</h1>
+              <p>把旅行偏好说给我听，路线、吃住和预算一起安排好。</p>
             </div>
           </div>
 
-          <div class="form-card">
-            <h3>🎯 旅行偏好</h3>
-            <div class="tag-group">
-              <button
-                v-for="tag in preferenceTags"
-                :key="tag"
-                class="tag-chip"
-                :class="{ selected: planForm.interests.includes(tag) }"
-                type="button"
-                @click="togglePreference(tag)"
-              >
-                {{ tag }}
+          <form class="login-panel" @submit.prevent="handleLogin">
+            <div class="panel-title">
+              <div>
+                <span>欢迎回来</span>
+                <h2>登录后继续你的旅程</h2>
+              </div>
+              <el-icon><SuitcaseLine /></el-icon>
+            </div>
+
+            <label class="field">
+              <span>账号</span>
+              <div class="field-control">
+                <el-icon><User /></el-icon>
+                <input v-model.trim="loginForm.username" autocomplete="username" placeholder="请输入账号" />
+              </div>
+            </label>
+
+            <label class="field">
+              <span>密码</span>
+              <div class="field-control">
+                <el-icon><Lock /></el-icon>
+                <input
+                  v-model="loginForm.password"
+                  autocomplete="current-password"
+                  placeholder="请输入密码"
+                  type="password"
+                />
+              </div>
+            </label>
+
+            <p v-if="loginError" class="form-error">{{ loginError }}</p>
+            <button class="primary-button" type="submit" :disabled="loginLoading">
+              <span>{{ loginLoading ? '正在登录' : '登录' }}</span>
+              <el-icon v-if="!loginLoading"><ArrowRight /></el-icon>
+              <el-icon v-else class="spin"><Loading /></el-icon>
+            </button>
+
+            <div class="demo-login">
+              <span>体验账号</span>
+              <button type="button" @click="fillDemoAccount('admin')">admin</button>
+              <button type="button" @click="fillDemoAccount('user')">user</button>
+              <small>密码均为 123456</small>
+            </div>
+          </form>
+        </section>
+
+        <section v-show="activePage === 'home'" class="screen home-screen">
+          <header class="home-header">
+            <button class="identity" type="button" @click="go('mine')">
+              <span class="mini-avatar" :class="currentAvatar.className">
+                <component :is="currentAvatar.icon" />
+              </span>
+              <span>
+                <small>早上好</small>
+                <strong>{{ currentUser?.nickname || '旅行者' }}</strong>
+              </span>
+            </button>
+            <button class="icon-button" type="button" aria-label="消息">
+              <el-icon><Bell /></el-icon>
+              <span class="notice-dot"></span>
+            </button>
+          </header>
+
+          <div class="home-hero">
+            <div class="hero-shade"></div>
+            <div class="hero-weather">
+              <el-icon><Sunny /></el-icon>
+              <span>成都 26°C</span>
+              <small>适合散步</small>
+            </div>
+            <div class="hero-copy">
+              <span class="eyebrow">AI TRAVEL CONCIERGE</span>
+              <h1>今天，想去哪里？</h1>
+              <p>一句话说出时间、预算和偏好。</p>
+            </div>
+            <form class="hero-composer" @submit.prevent="startFromPrompt">
+              <button type="button" class="composer-location" aria-label="使用当前位置" @click="promptText = '从南京出发，' + promptText">
+                <el-icon><Location /></el-icon>
               </button>
+              <textarea
+                v-model.trim="promptText"
+                rows="2"
+                placeholder="例如：成都 3 天，想吃得好，行程松一点"
+                aria-label="描述旅行需求"
+              ></textarea>
+              <button type="submit" class="composer-send" aria-label="开始规划">
+                <el-icon><Position /></el-icon>
+              </button>
+            </form>
+          </div>
+
+          <div class="preference-line">
+            <div>
+              <el-icon><MagicStick /></el-icon>
+              <span>我记得你喜欢</span>
+            </div>
+            <div class="preference-tags">
+              <button type="button" @click="go('planner')">慢节奏</button>
+              <button type="button" @click="go('planner')">本地美食</button>
+              <button type="button" @click="go('planner')">少排队</button>
             </div>
           </div>
 
-          <button class="btn-block" type="button" :disabled="generateLoading" @click="generatePlan">
-            {{ generateLoading ? '生成中...' : '✨ 生成规则版行程' }}
-          </button>
-        </div>
-      </section>
+          <div class="quick-actions" aria-label="快捷入口">
+            <button type="button" @click="go('chat')">
+              <span class="action-icon green"><el-icon><ChatDotRound /></el-icon></span>
+              <span>问 AI</span>
+            </button>
+            <button type="button" @click="go('planner')">
+              <span class="action-icon coral"><el-icon><MagicStick /></el-icon></span>
+              <span>做行程</span>
+            </button>
+            <button type="button" @click="goGuide('dest', selectedCityKey)">
+              <span class="action-icon blue"><el-icon><MapLocation /></el-icon></span>
+              <span>看攻略</span>
+            </button>
+            <button type="button" @click="goGuide('food', selectedCityKey)">
+              <span class="action-icon yellow"><el-icon><Food /></el-icon></span>
+              <span>找美食</span>
+            </button>
+          </div>
 
-      <!-- 行程详情页：展示后端生成的 dayPlans；没有真实数据时展示原型示例。 -->
-      <section class="page" :class="{ active: activePage === 'trip' }">
-        <div class="nav-bar">
-          <button class="back" type="button" @click="go('home')">‹</button>
-          <span>行程详情</span>
-          <button class="action" type="button">保存</button>
-        </div>
-        <div class="trip-header">
-          <h2>{{ plan?.title || '成都3日经典游' }}</h2>
-          <div class="meta-row">
-            <span>{{ plan?.days || 3 }} 天</span>
-            <span>{{ plan?.peopleCount || 2 }} 人</span>
-            <span>预算约 {{ plan?.totalBudget || 3000 }} 元</span>
+          <div class="section-heading">
+            <div>
+              <span>旅行灵感</span>
+              <h2>现在出发，正合适</h2>
+            </div>
+            <button type="button" @click="goGuide('dest', selectedCityKey)">全部 <el-icon><ArrowRight /></el-icon></button>
           </div>
-        </div>
-        <div class="timeline">
-          <div v-if="!plan" class="empty-plan">
-            还没有生成真实行程，先展示原型里的成都经典游。
-            <button type="button" @click="go('planner')">去生成</button>
+
+          <div class="destination-rail">
+            <button
+              v-for="(city, index) in displayCities"
+              :key="city.id"
+              class="destination-card"
+              type="button"
+              :style="destinationStyle(city, index)"
+              @click="goGuide('dest', city.key)"
+            >
+              <span v-if="index === 0" class="city-badge">本周热门</span>
+              <span class="destination-copy">
+                <strong>{{ city.name }}</strong>
+                <small>{{ city.summaryShort }}</small>
+              </span>
+            </button>
           </div>
-          <div v-for="day in planDays" :key="day.id || day.dayNo" class="day-block">
-            <div class="day-header">{{ day.title }}</div>
-            <div class="day-body">
-              <div v-for="item in day.items" :key="item.id || item.title" class="timeline-item">
-                <span class="timeline-dot" :class="item.itemType?.toLowerCase()"></span>
-                <div>
-                  <b>{{ item.startTime }} {{ item.title }}</b>
-                  <p>{{ item.description }}</p>
-                  <small>{{ item.address || '根据当天路线安排' }} · 约 {{ item.cost }} 元</small>
+
+          <div class="section-heading compact">
+            <div>
+              <span>即将出发</span>
+              <h2>成都松弛感 3 日游</h2>
+            </div>
+            <button type="button" @click="go('trip')">查看</button>
+          </div>
+
+          <button class="upcoming-trip" type="button" @click="go('trip')">
+            <span class="trip-date"><strong>18</strong><small>JUL</small></span>
+            <span class="trip-route">
+              <strong>南京 <el-icon><Right /></el-icon> 成都</strong>
+              <small>3 天 2 晚 · 2 人 · 预算约 3,200 元</small>
+              <span class="progress-track"><i></i></span>
+            </span>
+            <span class="trip-ready">待预订 3</span>
+          </button>
+        </section>
+
+        <section v-show="activePage === 'chat'" class="screen chat-screen">
+          <AppHeader title="AI 旅行助手" subtitle="正在了解你的旅行方式" @back="go('home')">
+            <button class="header-action" type="button" @click="go('planner')">表单规划</button>
+          </AppHeader>
+
+          <div class="profile-memory">
+            <span class="memory-icon"><el-icon><UserFilled /></el-icon></span>
+            <div>
+              <strong>你的旅行画像</strong>
+              <p>慢节奏 · 吃货 · 预算适中 · 不爱早起</p>
+            </div>
+            <button type="button" aria-label="修改旅行画像" @click="go('planner')"><el-icon><EditPen /></el-icon></button>
+          </div>
+
+          <div class="chat-list">
+            <div class="message assistant">
+              <span class="assistant-avatar"><el-icon><Compass /></el-icon></span>
+              <div class="message-body">
+                <p>想去哪座城市？也可以直接告诉我出发地、天数和大概预算。</p>
+                <div class="suggestion-row">
+                  <button type="button" @click="useSuggestion('从南京去成都玩 3 天，预算 3000 元')">成都 3 天</button>
+                  <button type="button" @click="useSuggestion('想找一个适合慢慢逛、好吃又不贵的城市')">帮我选城市</button>
                 </div>
               </div>
             </div>
+
+            <div v-for="(message, index) in chatMessages" :key="index" class="message user">
+              <div class="message-body"><p>{{ message }}</p></div>
+            </div>
+
+            <div v-if="agentDemoRunning" class="message assistant">
+              <span class="assistant-avatar"><el-icon><Compass /></el-icon></span>
+              <div class="agent-progress">
+                <div class="progress-title">
+                  <span><el-icon class="spin"><Loading /></el-icon> 正在拼出你的旅程</span>
+                  <small>3 / 5</small>
+                </div>
+                <div class="tool-step done"><el-icon><CircleCheck /></el-icon><span>理解偏好与预算</span></div>
+                <div class="tool-step done"><el-icon><CircleCheck /></el-icon><span>检索景点、美食与住宿</span></div>
+                <div class="tool-step active"><el-icon><Loading /></el-icon><span>核对天气、票价与距离</span></div>
+                <div class="tool-step"><span class="step-dot"></span><span>优化每日路线</span></div>
+                <div class="tool-step"><span class="step-dot"></span><span>整理可预订项目</span></div>
+              </div>
+            </div>
+
+            <div v-if="aiReply" class="message assistant">
+              <span class="assistant-avatar"><el-icon><Compass /></el-icon></span>
+              <div class="message-body result-message">
+                <span class="result-kicker">方案已准备</span>
+                <h3>成都 3 天松弛美食游</h3>
+                <p>{{ aiReply }}</p>
+                <div class="result-stats">
+                  <span><small>预计预算</small><strong>¥3,180</strong></span>
+                  <span><small>日均步行</small><strong>8,600 步</strong></span>
+                  <span><small>需要预订</small><strong>3 项</strong></span>
+                </div>
+                <button class="secondary-button" type="button" @click="go('trip')">
+                  查看完整行程 <el-icon><ArrowRight /></el-icon>
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      </section>
 
-      <!-- 景点攻略页：可切换城市，优先展示后端真实景点数据。 -->
-      <section class="page" :class="{ active: activePage === 'dest' }">
-        <div class="nav-bar">
-          <button class="back" type="button" @click="go('home')">‹</button>
-          <span>景点攻略</span>
-          <button class="action" type="button" @click="goGuide('food', selectedCityKey)">美食</button>
-        </div>
-        <CitySwitch :cities="displayCities" :active-key="selectedCityKey" @select="goGuide('dest', $event)" />
-        <div class="dest-hero" :style="{ background: selectedGuide.hero }">
-          <h2>{{ selectedGuide.destTitle }}</h2>
-          <p>{{ selectedGuide.destSub }}</p>
-        </div>
-        <div class="dest-stats">
-          <div><strong>{{ spots.length || selectedGuide.spots.length }}</strong><span>收录景点</span></div>
-          <div><strong>{{ selectedGuide.routeCount }}</strong><span>推荐路线</span></div>
-          <div><strong>{{ selectedGuide.avgTime }}</strong><span>适合天数</span></div>
-        </div>
-        <div class="section-title">🏔️ 必去景点</div>
-        <div class="dest-scroll">
-          <article v-for="spot in spotCards" :key="spot.name" class="guide-card">
-            <div class="cover" :style="{ background: spot.cover }">{{ spot.name }}</div>
-            <div class="guide-info">
-              <h4>{{ spot.name }}</h4>
-              <small>{{ spot.meta }}</small>
+          <div class="chat-composer">
+            <div class="chat-shortcuts">
+              <button type="button" @click="useSuggestion('预算再省一点')">预算再省一点</button>
+              <button type="button" @click="useSuggestion('不要早起')">不要早起</button>
+              <button type="button" @click="useSuggestion('多安排本地美食')">多安排美食</button>
             </div>
-          </article>
-        </div>
-        <div class="food-summary">
-          <h3>{{ selectedGuide.routeTitle }}</h3>
-          <p>{{ selectedGuide.routeDesc }}</p>
-        </div>
-      </section>
-
-      <!-- 美食页：可切换城市，成都美食图片来自 public/oneclick-trip-assets。 -->
-      <section class="page" :class="{ active: activePage === 'food' }">
-        <div class="nav-bar">
-          <button class="back" type="button" @click="go('home')">‹</button>
-          <span>美食</span>
-          <button class="action" type="button" @click="goGuide('dest', selectedCityKey)">景点</button>
-        </div>
-        <CitySwitch :cities="displayCities" :active-key="selectedCityKey" @select="goGuide('food', $event)" />
-        <div class="food-summary">
-          <h3>{{ selectedGuide.foodTitle }}</h3>
-          <p>{{ selectedGuide.foodSub }}</p>
-        </div>
-        <div class="food-rail">
-          <article v-for="food in foodCards" :key="food.name" class="food-card">
-            <div class="food-photo" :style="{ background: food.cover }">
-              <span>{{ food.tag }}</span>
-              <b>{{ food.name }}</b>
-            </div>
-            <div class="food-info">
-              <p>{{ food.summary }}</p>
-              <div><span>{{ food.price }}</span><span>{{ food.time }}</span></div>
-            </div>
-          </article>
-        </div>
-        <button class="btn-block orange" type="button" @click="go('planner')">🍽️ 把美食加入行程</button>
-      </section>
-
-      <!-- 我的页：用户资料入口、行程入口、退出登录都放在这里。 -->
-      <section class="page" :class="{ active: activePage === 'mine' }">
-        <div class="nav-bar">我的</div>
-        <div class="profile-header">
-          <span class="profile-avatar" :class="currentAvatar.className">{{ currentAvatar.icon }}</span>
-          <div>
-            <h2>{{ currentUser?.nickname || '旅行者' }}</h2>
-            <p>{{ currentUser?.username || '当前阶段：非 AI MVP 联调' }}</p>
+            <form @submit.prevent="callAiPlaceholder(aiInput)">
+              <textarea v-model.trim="aiInput" rows="1" placeholder="继续补充你的想法" aria-label="继续补充旅行需求"></textarea>
+              <button type="submit" aria-label="发送"><el-icon><Position /></el-icon></button>
+            </form>
           </div>
-          <button class="profile-edit" type="button" @click="openProfileEdit">编辑</button>
-        </div>
-        <div class="menu-group">
-          <button type="button" @click="openProfileEdit">个人资料 <span>›</span></button>
-          <button type="button" @click="go('trip')">🗺️ 我的行程 <span>›</span></button>
-          <button type="button" @click="toastText = '旅行偏好已在规划页保留，后续会同步到账户资料'">🎯 旅行偏好 <span>›</span></button>
-          <button type="button" @click="go('dest')">🏔️ 景点攻略 <span>›</span></button>
-          <button type="button" @click="go('food')">🍜 美食灵感 <span>›</span></button>
-          <button type="button" @click="go('chat')">🤖 AI 助手 <span>›</span></button>
-          <button type="button" @click="logout">退出登录 <span>›</span></button>
-        </div>
-      </section>
+        </section>
 
-      <!-- 编辑资料页：修改昵称和预设头像，保存后调用 PUT /api/users/me。 -->
-      <section class="page" :class="{ active: activePage === 'profileEdit' }">
-        <div class="nav-bar">
-          <button class="back" type="button" @click="go('mine')">‹</button>
-          <span>编辑资料</span>
-        </div>
-        <form class="profile-form" @submit.prevent="handleProfileUpdate">
-          <div class="profile-preview">
-            <span class="profile-avatar large" :class="selectedProfileAvatar.className">{{ selectedProfileAvatar.icon }}</span>
+        <section v-show="activePage === 'planner'" class="screen planner-screen">
+          <AppHeader title="创建一次旅行" subtitle="大约 1 分钟" @back="go('home')" />
+
+          <div class="planner-intro">
+            <span><el-icon><MagicStick /></el-icon></span>
             <div>
-              <strong>{{ profileForm.nickname || '旅行者' }}</strong>
-              <small>{{ currentUser?.username }}</small>
+              <h1>先告诉我这些</h1>
+              <p>之后你仍可以在对话里随时修改。</p>
             </div>
           </div>
 
-          <div class="form-card">
-            <h3>选择头像</h3>
-            <div class="avatar-grid">
-              <button
-                v-for="avatar in avatarOptions"
-                :key="avatar.id"
-                class="avatar-option"
-                :class="{ selected: profileForm.avatarUrl === avatar.id }"
-                type="button"
-                @click="profileForm.avatarUrl = avatar.id"
-              >
-                <span class="profile-avatar small" :class="avatar.className">{{ avatar.icon }}</span>
-                <small>{{ avatar.label }}</small>
-              </button>
+          <form class="planner-form" @submit.prevent="generatePlan">
+            <fieldset class="form-section">
+              <legend>从哪里，到哪里</legend>
+              <div class="route-fields">
+                <label class="route-field">
+                  <span class="route-dot start"></span>
+                  <span>
+                    <small>出发地</small>
+                    <input v-model.trim="planForm.departureCity" aria-label="出发城市" />
+                  </span>
+                </label>
+                <span class="route-line"></span>
+                <label class="route-field">
+                  <span class="route-dot end"></span>
+                  <span>
+                    <small>目的地</small>
+                    <select v-model="planForm.cityId" aria-label="目的地" @change="selectCityById(planForm.cityId)">
+                      <option v-for="city in displayCities" :key="city.id" :value="city.id">{{ city.name }}</option>
+                    </select>
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset class="form-section">
+              <legend>旅行规模</legend>
+              <div class="inline-fields">
+                <label>
+                  <span><el-icon><Calendar /></el-icon> 天数</span>
+                  <select v-model.number="planForm.days">
+                    <option v-for="day in [2, 3, 4, 5, 6, 7]" :key="day" :value="day">{{ day }} 天</option>
+                  </select>
+                </label>
+                <label>
+                  <span><el-icon><User /></el-icon> 人数</span>
+                  <select v-model.number="planForm.peopleCount">
+                    <option v-for="people in [1, 2, 3, 4, 5, 6]" :key="people" :value="people">{{ people }} 人</option>
+                  </select>
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset class="form-section">
+              <legend>预算与节奏</legend>
+              <div class="segment-control">
+                <button
+                  v-for="budget in budgetOptions"
+                  :key="budget.value"
+                  type="button"
+                  :class="{ active: planForm.budgetLevel === budget.value }"
+                  @click="planForm.budgetLevel = budget.value"
+                >
+                  <span>{{ budget.label }}</span>
+                  <small>{{ budget.hint }}</small>
+                </button>
+              </div>
+              <div class="pace-control">
+                <span>每天的节奏</span>
+                <div>
+                  <button type="button" :class="{ active: planForm.pace === 'RELAXED' }" @click="planForm.pace = 'RELAXED'">松弛</button>
+                  <button type="button" :class="{ active: planForm.pace === 'BALANCED' }" @click="planForm.pace = 'BALANCED'">均衡</button>
+                  <button type="button" :class="{ active: planForm.pace === 'FULL' }" @click="planForm.pace = 'FULL'">充实</button>
+                </div>
+              </div>
+            </fieldset>
+
+            <fieldset class="form-section">
+              <legend>这次更想要</legend>
+              <div class="tag-selector">
+                <button
+                  v-for="tag in preferenceTags"
+                  :key="tag.label"
+                  type="button"
+                  :class="{ active: planForm.interests.includes(tag.label) }"
+                  @click="togglePreference(tag.label)"
+                >
+                  <el-icon><component :is="tag.icon" /></el-icon>
+                  <span>{{ tag.label }}</span>
+                  <el-icon v-if="planForm.interests.includes(tag.label)" class="tag-check"><Check /></el-icon>
+                </button>
+              </div>
+            </fieldset>
+
+            <button class="primary-button generate-button" type="submit" :disabled="generateLoading">
+              <el-icon v-if="generateLoading" class="spin"><Loading /></el-icon>
+              <el-icon v-else><MagicStick /></el-icon>
+              <span>{{ generateLoading ? '正在生成路线' : '生成我的旅行' }}</span>
+            </button>
+          </form>
+        </section>
+
+        <section v-show="activePage === 'trip'" class="screen trip-screen">
+          <div class="trip-cover">
+            <div class="trip-cover-actions">
+              <button class="image-button" type="button" aria-label="返回" @click="go('home')"><el-icon><Back /></el-icon></button>
+              <div>
+                <button class="image-button" type="button" aria-label="收藏" @click="showToast('已收藏这份行程')"><el-icon><Star /></el-icon></button>
+                <button class="image-button" type="button" aria-label="更多"><el-icon><MoreFilled /></el-icon></button>
+              </div>
+            </div>
+            <div class="trip-cover-copy">
+              <span class="plan-status"><i></i> 方案已完成</span>
+              <h1>{{ plan?.title || '成都松弛感 3 日游' }}</h1>
+              <p>{{ plan?.days || 3 }} 天 {{ (plan?.days || 3) - 1 }} 晚 · {{ plan?.peopleCount || 2 }} 人 · {{ budgetLabel }}</p>
             </div>
           </div>
 
-          <div class="form-card">
-            <h3>基础资料</h3>
-            <label>昵称</label>
-            <input v-model.trim="profileForm.nickname" class="form-input" maxlength="64" placeholder="输入你的昵称" />
-            <label>账号</label>
-            <input class="form-input readonly" :value="currentUser?.username" readonly />
-            <label>身份</label>
-            <input class="form-input readonly" :value="currentUser?.role === 'ADMIN' ? '管理员' : '旅行者'" readonly />
+          <div class="trip-overview">
+            <div><span><el-icon><Wallet /></el-icon></span><small>预计总花费</small><strong>¥{{ plan?.totalBudget || 3180 }}</strong></div>
+            <div><span><el-icon><Timer /></el-icon></span><small>日均游玩</small><strong>8.5 小时</strong></div>
+            <div><span><el-icon><Tickets /></el-icon></span><small>待预订</small><strong>3 项</strong></div>
           </div>
 
-          <p v-if="profileError" class="login-error">{{ profileError }}</p>
-          <button class="btn-block" type="submit" :disabled="profileLoading">
-            {{ profileLoading ? '保存中...' : '保存资料' }}
-          </button>
-        </form>
-      </section>
+          <div class="agent-note">
+            <span><el-icon><MagicStick /></el-icon></span>
+            <div>
+              <strong>这样安排更适合你</strong>
+              <p>每天 10 点左右出门，景点按区域串联。重口味餐饮与清淡小吃错开，第三天留出返程余量。</p>
+            </div>
+            <button type="button" aria-label="让 AI 修改行程" @click="go('chat')"><el-icon><EditPen /></el-icon></button>
+          </div>
 
-      <nav v-if="isAuthenticated" class="tabbar">
-        <button :class="{ active: activePage === 'home' }" type="button" @click="go('home')">🏠<span>首页</span></button>
-        <button :class="{ active: activePage === 'chat' }" type="button" @click="go('chat')">💬<span>AI助手</span></button>
-        <button :class="{ active: activePage === 'planner' || activePage === 'trip' }" type="button" @click="go('planner')">🗺️<span>行程规划</span></button>
-        <button :class="{ active: activePage === 'mine' || activePage === 'profileEdit' }" type="button" @click="go('mine')">👤<span>我的</span></button>
+          <div class="day-tabs" role="tablist" aria-label="选择行程日期">
+            <button
+              v-for="day in planDays"
+              :key="day.dayNo"
+              type="button"
+              role="tab"
+              :aria-selected="selectedDayNo === day.dayNo"
+              :class="{ active: selectedDayNo === day.dayNo }"
+              @click="selectedDayNo = day.dayNo"
+            >
+              <small>DAY {{ day.dayNo }}</small>
+              <strong>{{ day.dayNo === 1 ? '周五' : day.dayNo === 2 ? '周六' : '周日' }}</strong>
+            </button>
+          </div>
+
+          <div class="day-summary">
+            <div>
+              <span>{{ activeDay.title }}</span>
+              <h2>{{ dayTheme(activeDay.dayNo) }}</h2>
+            </div>
+            <span class="weather-chip"><el-icon><Sunny /></el-icon> 26°C</span>
+          </div>
+
+          <div class="itinerary">
+            <article v-for="(item, index) in activeDay.items" :key="item.title + index" class="itinerary-item">
+              <time>{{ item.startTime }}</time>
+              <span class="timeline-node" :class="item.itemType?.toLowerCase()">
+                <el-icon><component :is="itemIcon(item.itemType)" /></el-icon>
+              </span>
+              <div class="itinerary-content">
+                <div class="item-heading">
+                  <div>
+                    <span>{{ itemTypeLabel(item.itemType) }}</span>
+                    <h3>{{ item.title }}</h3>
+                  </div>
+                  <strong>¥{{ item.cost || 0 }}</strong>
+                </div>
+                <p>{{ item.description }}</p>
+                <div class="item-meta">
+                  <span><el-icon><Location /></el-icon>{{ item.address || '沿路线顺路到达' }}</span>
+                  <span><el-icon><Timer /></el-icon>{{ item.duration || '约 2 小时' }}</span>
+                </div>
+                <button
+                  v-if="isBookable(item.itemType)"
+                  class="booking-trigger"
+                  type="button"
+                  @click="toggleBooking(item.title)"
+                >
+                  <span>{{ bookingItem === item.title ? '收起预订' : bookingLabel(item.itemType) }}</span>
+                  <el-icon :class="{ rotate: bookingItem === item.title }"><ArrowDown /></el-icon>
+                </button>
+                <div v-if="bookingItem === item.title" class="booking-panel">
+                  <div>
+                    <span class="booking-provider">演示渠道</span>
+                    <strong>{{ bookingOffer(item) }}</strong>
+                    <small>可退改 · 下单前再次确认</small>
+                  </div>
+                  <button type="button" @click="confirmBooking(item)">选择</button>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <div class="trip-bottom-action">
+            <button type="button" @click="go('chat')"><el-icon><ChatDotRound /></el-icon><span>让 AI 修改</span></button>
+            <button type="button" class="book-all" @click="showToast('已生成 3 项预订清单')">查看预订清单</button>
+          </div>
+        </section>
+
+        <section v-show="activePage === 'dest'" class="screen explore-screen">
+          <AppHeader title="发现" subtitle="景点攻略" @back="go('home')">
+            <button class="header-action icon-only" type="button" aria-label="搜索"><el-icon><Search /></el-icon></button>
+          </AppHeader>
+
+          <div class="explore-tabs">
+            <button class="active" type="button">景点攻略</button>
+            <button type="button" @click="goGuide('food', selectedCityKey)">本地美食</button>
+          </div>
+
+          <div class="city-switch">
+            <button
+              v-for="city in displayCities"
+              :key="city.id"
+              type="button"
+              :class="{ active: selectedCityKey === city.key }"
+              @click="goGuide('dest', city.key)"
+            >{{ city.name }}</button>
+          </div>
+
+          <div class="guide-hero" :style="{ backgroundImage: guideHeroBackground }">
+            <div>
+              <span>LOCAL GUIDE</span>
+              <h1>{{ selectedGuide.destTitle }}</h1>
+              <p>{{ selectedGuide.destSub }}</p>
+            </div>
+          </div>
+
+          <div class="guide-facts">
+            <div><strong>{{ spots.length || selectedGuide.spots.length }}</strong><span>精选景点</span></div>
+            <div><strong>{{ selectedGuide.routeCount }}</strong><span>推荐路线</span></div>
+            <div><strong>{{ selectedGuide.avgTime }}</strong><span>适合游玩</span></div>
+          </div>
+
+          <div class="section-heading compact">
+            <div><span>不绕路的玩法</span><h2>{{ selectedGuide.routeTitle }}</h2></div>
+          </div>
+          <p class="route-description">{{ selectedGuide.routeDesc }}</p>
+
+          <div class="spot-list">
+            <article v-for="(spot, index) in spotCards" :key="spot.name">
+              <div class="spot-image" :style="{ backgroundImage: spot.cover }">
+                <span>{{ String(index + 1).padStart(2, '0') }}</span>
+              </div>
+              <div>
+                <span>{{ index === 0 ? '第一次来必去' : '顺路安排' }}</span>
+                <h3>{{ spot.name }}</h3>
+                <p>{{ spot.meta }}</p>
+                <button type="button" @click="showToast('已加入候选行程')">加入行程 <el-icon><Plus /></el-icon></button>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section v-show="activePage === 'food'" class="screen explore-screen">
+          <AppHeader title="发现" subtitle="本地美食" @back="go('home')">
+            <button class="header-action icon-only" type="button" aria-label="搜索"><el-icon><Search /></el-icon></button>
+          </AppHeader>
+
+          <div class="explore-tabs">
+            <button type="button" @click="goGuide('dest', selectedCityKey)">景点攻略</button>
+            <button class="active" type="button">本地美食</button>
+          </div>
+
+          <div class="city-switch">
+            <button
+              v-for="city in displayCities"
+              :key="city.id"
+              type="button"
+              :class="{ active: selectedCityKey === city.key }"
+              @click="goGuide('food', city.key)"
+            >{{ city.name }}</button>
+          </div>
+
+          <div class="food-intro">
+            <span><el-icon><Food /></el-icon></span>
+            <div><small>为你的路线挑选</small><h1>{{ selectedGuide.foodTitle }}</h1><p>{{ selectedGuide.foodSub }}</p></div>
+          </div>
+
+          <div class="food-list">
+            <article v-for="food in foodCards" :key="food.name">
+              <div class="food-image" :style="{ backgroundImage: food.cover }">
+                <span>{{ food.tag }}</span>
+              </div>
+              <div class="food-content">
+                <div><h3>{{ food.name }}</h3><strong>{{ food.price }}</strong></div>
+                <p>{{ food.summary }}</p>
+                <span><el-icon><Location /></el-icon>{{ food.time }}</span>
+                <button type="button" @click="showToast('已加入美食候选')">加入行程 <el-icon><Plus /></el-icon></button>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section v-show="activePage === 'mine'" class="screen mine-screen">
+          <header class="mine-header">
+            <div class="mine-title"><span>我的</span><button class="icon-button" type="button" aria-label="设置"><el-icon><Setting /></el-icon></button></div>
+            <button class="profile-summary" type="button" @click="openProfileEdit">
+              <span class="profile-avatar" :class="currentAvatar.className"><component :is="currentAvatar.icon" /></span>
+              <span><strong>{{ currentUser?.nickname || '旅行者' }}</strong><small>@{{ currentUser?.username || 'traveler' }}</small></span>
+              <el-icon><ArrowRight /></el-icon>
+            </button>
+            <div class="profile-tags"><span>慢节奏</span><span>吃货</span><span>城市漫游</span></div>
+          </header>
+
+          <div class="travel-stats">
+            <div><strong>3</strong><span>我的行程</span></div>
+            <div><strong>12</strong><span>收藏地点</span></div>
+            <div><strong>4</strong><span>去过城市</span></div>
+          </div>
+
+          <div class="mine-section">
+            <div class="section-heading compact"><div><span>下一次出发</span><h2>成都 · 7 月 18 日</h2></div><button type="button" @click="go('trip')">查看</button></div>
+            <div class="mini-route">
+              <span class="trip-date"><strong>18</strong><small>JUL</small></span>
+              <div><strong>南京 <el-icon><Right /></el-icon> 成都</strong><small>3 天 2 晚 · 待预订 3 项</small></div>
+              <span class="route-status">准备中</span>
+            </div>
+          </div>
+
+          <div class="mine-menu">
+            <button type="button" @click="showToast('订单中心为演示入口')"><span><el-icon><Tickets /></el-icon>我的订单</span><el-icon><ArrowRight /></el-icon></button>
+            <button type="button" @click="showToast('收藏夹为演示入口')"><span><el-icon><Star /></el-icon>我的收藏</span><el-icon><ArrowRight /></el-icon></button>
+            <button type="button" @click="go('chat')"><span><el-icon><UserFilled /></el-icon>旅行偏好</span><el-icon><ArrowRight /></el-icon></button>
+            <button type="button" @click="showToast('消息中心为演示入口')"><span><el-icon><Bell /></el-icon>消息通知</span><el-icon><ArrowRight /></el-icon></button>
+          </div>
+
+          <button class="logout-button" type="button" @click="logout"><el-icon><SwitchButton /></el-icon>退出登录</button>
+        </section>
+
+        <section v-show="activePage === 'profileEdit'" class="screen profile-edit-screen">
+          <AppHeader title="编辑资料" subtitle="保存后同步更新" @back="go('mine')">
+            <button class="header-action" type="button" :disabled="profileLoading" @click="handleProfileUpdate">保存</button>
+          </AppHeader>
+
+          <div class="avatar-preview">
+            <span class="profile-avatar large" :class="selectedProfileAvatar.className">
+              <component :is="selectedProfileAvatar.icon" />
+            </span>
+            <div><strong>{{ profileForm.nickname || '旅行者' }}</strong><small>选择一个代表你的旅行头像</small></div>
+          </div>
+
+          <form class="profile-form" @submit.prevent="handleProfileUpdate">
+            <fieldset class="form-section">
+              <legend>昵称</legend>
+              <label class="single-input">
+                <input v-model.trim="profileForm.nickname" maxlength="20" placeholder="输入昵称" />
+                <span>{{ profileForm.nickname.length }}/20</span>
+              </label>
+              <p v-if="profileError" class="form-error">{{ profileError }}</p>
+            </fieldset>
+
+            <fieldset class="form-section">
+              <legend>头像</legend>
+              <div class="avatar-grid">
+                <button
+                  v-for="avatar in avatarOptions"
+                  :key="avatar.id"
+                  type="button"
+                  :class="{ active: profileForm.avatarUrl === avatar.id }"
+                  @click="profileForm.avatarUrl = avatar.id"
+                >
+                  <span class="profile-avatar" :class="avatar.className"><component :is="avatar.icon" /></span>
+                  <small>{{ avatar.label }}</small>
+                  <el-icon v-if="profileForm.avatarUrl === avatar.id"><CircleCheckFilled /></el-icon>
+                </button>
+              </div>
+            </fieldset>
+          </form>
+        </section>
+      </div>
+
+      <nav v-if="showTabbar" class="tabbar" aria-label="主要导航">
+        <button type="button" :class="{ active: activePage === 'home' }" @click="go('home')">
+          <el-icon><House /></el-icon><span>首页</span>
+        </button>
+        <button type="button" :class="{ active: activePage === 'dest' || activePage === 'food' }" @click="goGuide('dest', selectedCityKey)">
+          <el-icon><Compass /></el-icon><span>发现</span>
+        </button>
+        <button type="button" :class="{ active: activePage === 'trip' }" @click="go('trip')">
+          <el-icon><MapLocation /></el-icon><span>行程</span>
+        </button>
+        <button type="button" :class="{ active: activePage === 'mine' }" @click="go('mine')">
+          <el-icon><User /></el-icon><span>我的</span>
+        </button>
       </nav>
 
-      <div v-if="toastText" class="toast" @animationend="toastText = ''">{{ toastText }}</div>
+      <Transition name="toast">
+        <div v-if="toastText" class="toast-message" role="status">{{ toastText }}</div>
+      </Transition>
     </main>
   </div>
 </template>
 
 <script setup>
 import { computed, defineComponent, h, onMounted, reactive, ref } from 'vue'
+import {
+  ArrowDown,
+  ArrowRight,
+  Back,
+  Bell,
+  Bicycle,
+  Calendar,
+  Camera,
+  ChatDotRound,
+  Check,
+  CircleCheck,
+  CircleCheckFilled,
+  Compass,
+  EditPen,
+  Food,
+  House,
+  Loading,
+  Location,
+  Lock,
+  MagicStick,
+  MapLocation,
+  MoreFilled,
+  OfficeBuilding,
+  Plus,
+  Position,
+  Refresh,
+  Right,
+  Search,
+  Setting,
+  Star,
+  Sunny,
+  SuitcaseLine,
+  SwitchButton,
+  Tickets,
+  Timer,
+  User,
+  UserFilled,
+  Van,
+  Wallet
+} from '@element-plus/icons-vue'
 import { api, getToken, setToken } from './api/client'
 
 const USER_KEY = 'oneclick_trip_user'
 
-// 城市切换条是一个小的内联组件，景点页和美食页都会复用。
-const CitySwitch = defineComponent({
+const AppHeader = defineComponent({
   props: {
-    cities: { type: Array, required: true },
-    activeKey: { type: String, required: true }
+    title: { type: String, required: true },
+    subtitle: { type: String, default: '' }
   },
-  emits: ['select'],
-  setup(props, { emit }) {
+  emits: ['back'],
+  setup(props, { emit, slots }) {
     return () =>
-      h(
-        'div',
-        { class: 'city-switch' },
-        props.cities.map((city) =>
-          h(
-            'button',
-            {
-              type: 'button',
-              class: { active: city.key === props.activeKey },
-              onClick: () => emit('select', city.key)
-            },
-            city.name
-          )
-        )
-      )
+      h('header', { class: 'app-header' }, [
+        h('button', { class: 'header-back', type: 'button', 'aria-label': '返回', onClick: () => emit('back') }, [h(Back)]),
+        h('div', { class: 'header-title' }, [h('strong', props.title), props.subtitle ? h('small', props.subtitle) : null]),
+        h('div', { class: 'header-slot' }, slots.default ? slots.default() : null)
+      ])
   }
 })
 
-// ========= 页面状态 =========
-// ref 用来保存会变化的简单值；activePage 决定当前手机框展示哪个页面。
 const backendOnline = ref(false)
 const currentUser = ref(readSavedUser())
 const isAuthenticated = ref(Boolean(getToken()))
@@ -481,9 +733,14 @@ const loginLoading = ref(false)
 const loginError = ref('')
 const profileLoading = ref(false)
 const profileError = ref('')
+const promptText = ref('')
+const chatMessages = ref([])
+const agentDemoRunning = ref(false)
+const selectedDayNo = ref(1)
+const bookingItem = ref('')
+let toastTimer = null
+let agentTimer = null
 
-// ========= 表单状态 =========
-// reactive 适合保存一组相关字段，比如登录表单、资料表单、行程表单。
 const loginForm = reactive({
   username: 'admin',
   password: '123456'
@@ -504,113 +761,120 @@ const planForm = reactive({
   interests: ['美食', '轻松']
 })
 
-const preferenceTags = ['美食', '轻松', '人文', '拍照', '亲子', '自然']
+const budgetOptions = [
+  { value: 'LOW', label: '省着玩', hint: '¥800/天内' },
+  { value: 'MEDIUM', label: '刚刚好', hint: '¥800-1500/天' },
+  { value: 'HIGH', label: '住好一点', hint: '¥1500/天起' }
+]
 
-// 头像目前不是上传图片，而是预设选项；保存到数据库的是 id，例如 avatar-compass。
+const preferenceTags = [
+  { label: '美食', icon: Food },
+  { label: '轻松', icon: Refresh },
+  { label: '人文', icon: OfficeBuilding },
+  { label: '拍照', icon: Camera },
+  { label: '亲子', icon: UserFilled },
+  { label: '自然', icon: Bicycle }
+]
+
 const avatarOptions = [
-  { id: 'avatar-compass', icon: '🧭', label: '指南针', className: 'avatar-teal' },
-  { id: 'avatar-backpack', icon: '🎒', label: '背包客', className: 'avatar-green' },
-  { id: 'avatar-camera', icon: '📷', label: '摄影', className: 'avatar-blue' },
-  { id: 'avatar-panda', icon: '🐼', label: '熊猫', className: 'avatar-warm' },
-  { id: 'avatar-mountain', icon: '⛰️', label: '山野', className: 'avatar-lime' },
-  { id: 'avatar-noodle', icon: '🍜', label: '美食', className: 'avatar-orange' }
+  { id: 'avatar-compass', icon: Compass, label: '探索者', className: 'avatar-teal' },
+  { id: 'avatar-backpack', icon: SuitcaseLine, label: '背包客', className: 'avatar-green' },
+  { id: 'avatar-camera', icon: Camera, label: '摄影师', className: 'avatar-blue' },
+  { id: 'avatar-panda', icon: UserFilled, label: '慢游派', className: 'avatar-warm' },
+  { id: 'avatar-mountain', icon: MapLocation, label: '山野派', className: 'avatar-lime' },
+  { id: 'avatar-noodle', icon: Food, label: '美食家', className: 'avatar-coral' }
 ]
 
-// 后端连不上时，前端会用 fallbackCities 保证页面仍然能展示。
 const fallbackCities = [
-  { id: 1, key: 'chengdu', name: '成都', province: '四川', summary: '适合轻松美食游，熊猫、古街、火锅和川西文化都很集中。', summaryShort: '天府之国 · 美食之都' },
-  { id: 2, key: 'hangzhou', name: '杭州', province: '浙江', summary: '西湖、灵隐寺和龙井村适合慢节奏城市自然游。', summaryShort: '人间天堂 · 西湖美景' },
-  { id: 3, key: 'xian', name: '西安', province: '陕西', summary: '古都文化和碳水美食密度高，适合历史路线。', summaryShort: '十三朝古都 · 碳水天堂' },
-  { id: 4, key: 'dali', name: '大理', province: '云南', summary: '苍山洱海和古城生活感强，适合放松度假。', summaryShort: '苍山洱海 · 风花雪月' }
+  { id: 1, key: 'chengdu', name: '成都', province: '四川', summaryShort: '美食与松弛感' },
+  { id: 2, key: 'hangzhou', name: '杭州', province: '浙江', summaryShort: '湖边慢慢走' },
+  { id: 3, key: 'xian', name: '西安', province: '陕西', summaryShort: '古都与碳水' },
+  { id: 4, key: 'dali', name: '大理', province: '云南', summaryShort: '吹风看洱海' }
 ]
 
-// guideData 是前端原型里的展示文案和渐变底图。
-// 后端真实数据主要负责城市、景点、美食、酒店等结构化内容。
 const guideData = {
   chengdu: {
-    hero: 'linear-gradient(135deg, #ff7467, #ffb36f)',
-    destTitle: '🐼 成都景点攻略',
-    destSub: '天府之国 · 熊猫基地 · 市井古街 · 都江堰青城山',
+    image: '/oneclick-trip-assets/chengdu-destination.png',
+    destTitle: '成都景点攻略',
+    destSub: '市井烟火、熊猫与古蜀文化，适合慢慢吃、慢慢逛。',
     routeCount: 6,
-    avgTime: '3天',
-    routeTitle: '推荐玩法：市区经典 + 熊猫 + 都江堰',
-    routeDesc: '第一天走市区古街和人文景点，第二天看熊猫和吃火锅，第三天安排都江堰青城山。',
-    foodTitle: '🍜 成都美食灵感',
-    foodSub: '午餐吃小吃，晚餐留给火锅或串串，避免一天全是重口味。',
+    avgTime: '3 天',
+    routeTitle: '市区经典 + 熊猫 + 都江堰',
+    routeDesc: '第一天把古街与人文景点串起来，第二天早些看熊猫，第三天去都江堰，返程前不赶路。',
+    foodTitle: '成都吃什么',
+    foodSub: '正餐与小吃错开，辣味与清甜交替，三天也不会吃得太累。',
     spots: [
-      ['大熊猫基地', '🎫55元 · 3-4小时 · 建议早去', 'linear-gradient(135deg,#4facfe,#00f2fe)'],
-      ['宽窄巷子', '免费 · 2-3小时 · 市井街区', 'linear-gradient(135deg,#a8edea,#fed6e3)'],
-      ['杜甫草堂', '🎫60元 · 2-3小时 · 人文历史', 'linear-gradient(135deg,#f5f7fa,#c3cfe2)']
+      ['大熊猫基地', '门票 55 元 · 建议早去 · 3-4 小时', '/oneclick-trip-assets/chengdu-panda-base.png'],
+      ['宽窄巷子', '免费 · 市井街区 · 2 小时', '/oneclick-trip-assets/chengdu-kuanzhai-alley.png'],
+      ['杜甫草堂', '门票 60 元 · 人文历史 · 2 小时', '/oneclick-trip-assets/chengdu-dufu-cottage.png']
     ],
     foods: [
-      ['火锅与串串', '晚餐首选', '适合安排在市区夜晚，人均 80-120 元。', '辣度可选', '约 1.5 小时', '/oneclick-trip-assets/chengdu-food-hotpot.png'],
-      ['担担面与冰粉', '小吃集合', '适合午餐或景点间隙，价格轻，选择多。', '人均 15-40 元', '可快速解决', '/oneclick-trip-assets/chengdu-food-snacks.png']
+      ['火锅与串串', '晚餐首选', '适合留给抵达后的第一晚，辣度可选。', '人均 ¥80-120', '春熙路附近', '/oneclick-trip-assets/chengdu-food-hotpot.png'],
+      ['担担面与冰粉', '小吃组合', '景点之间快速补能，咸辣之后来一碗冰粉。', '人均 ¥20-45', '宽窄巷子附近', '/oneclick-trip-assets/chengdu-food-snacks.png']
     ]
   },
   hangzhou: {
-    hero: 'linear-gradient(135deg, #58c9a3, #89d8e8)',
-    destTitle: '🌿 杭州景点攻略',
-    destSub: '西湖 · 灵隐寺 · 龙井村 · 湖滨夜景',
+    image: '/oneclick-trip-assets/hangzhou-west-lake.png',
+    destTitle: '杭州景点攻略',
+    destSub: '西湖、灵隐与茶山，清晨和傍晚都值得留白。',
     routeCount: 5,
-    avgTime: '2天',
-    routeTitle: '推荐玩法：西湖慢走 + 灵隐祈福',
-    routeDesc: '适合慢节奏路线，上午灵隐寺，下午西湖，第二天安排龙井村和茶点。',
-    foodTitle: '🍵 杭州美食灵感',
-    foodSub: '杭州更适合清淡茶食和本地面食，安排在西湖或龙井附近更顺。',
+    avgTime: '2 天',
+    routeTitle: '灵隐祈福 + 西湖慢走',
+    routeDesc: '上午去灵隐寺，下午沿西湖走到日落；第二天把龙井村与茶点安排在一起。',
+    foodTitle: '杭州吃什么',
+    foodSub: '清淡茶食与本地面食更适合穿插在湖边路线里。',
     spots: [
-      ['西湖', '免费 · 3-4小时 · 慢游', 'linear-gradient(135deg,#84fab0,#8fd3f4)'],
-      ['灵隐寺', '🎫75元 · 2-3小时 · 人文', 'linear-gradient(135deg,#d4fc79,#96e6a1)'],
-      ['龙井村', '茶点 · 2小时 · 轻松', 'linear-gradient(135deg,#c1dfc4,#deecdd)']
+      ['西湖', '免费 · 湖边慢游 · 3-4 小时', '/oneclick-trip-assets/hangzhou-west-lake.png'],
+      ['灵隐寺', '门票 75 元 · 人文 · 2-3 小时', '/oneclick-trip-assets/hangzhou-lingyin-temple.png'],
+      ['龙井村', '茶园慢游 · 2 小时', '/oneclick-trip-assets/hangzhou-longjing-village.png']
     ],
     foods: [
-      ['龙井茶点', '清淡茶食', '适合西湖或龙井村附近安排。', '人均 60-100 元', '下午茶', 'linear-gradient(135deg,#d4fc79,#96e6a1)'],
-      ['片儿川', '本地面食', '适合早餐或午餐，体验杭州家常味。', '人均 20-35 元', '早餐午餐', 'linear-gradient(135deg,#f6d365,#fda085)']
+      ['龙井茶点', '下午茶', '在龙井村停下来喝一盏茶。', '人均 ¥60-100', '龙井村', '/oneclick-trip-assets/hangzhou-longjing-snacks.png'],
+      ['片儿川', '本地面食', '早餐或午餐都很合适。', '人均 ¥20-35', '湖滨附近', '/oneclick-trip-assets/hangzhou-pianerchuan.png']
     ]
   },
   xian: {
-    hero: 'linear-gradient(135deg, #c79081, #dfa579)',
-    destTitle: '🏛️ 西安景点攻略',
-    destSub: '兵马俑 · 古城墙 · 大唐不夜城 · 回民街',
+    image: '/oneclick-trip-assets/xian-city-wall.png',
+    destTitle: '西安景点攻略',
+    destSub: '古城历史与夜游体验集中，适合一条主线走到底。',
     routeCount: 5,
-    avgTime: '3天',
-    routeTitle: '推荐玩法：历史主线 + 夜景 + 碳水',
-    routeDesc: '白天安排兵马俑和城墙，晚上去大唐不夜城，吃饭穿插肉夹馍和泡馍。',
-    foodTitle: '🥙 西安美食灵感',
-    foodSub: '西安美食适合做成正餐和小吃穿插，分量足，别把每顿排太满。',
+    avgTime: '3 天',
+    routeTitle: '兵马俑 + 城墙 + 长安夜色',
+    routeDesc: '白天安排历史主线，傍晚登城墙，夜晚去大唐不夜城，中间穿插本地小吃。',
+    foodTitle: '西安吃什么',
+    foodSub: '碳水分量足，正餐与小吃别排得太密。',
     spots: [
-      ['秦始皇兵马俑', '🎫120元 · 半天 · 必去', 'linear-gradient(135deg,#c79081,#dfa579)'],
-      ['西安城墙', '🎫54元 · 2小时 · 骑行', 'linear-gradient(135deg,#f6d365,#fda085)'],
-      ['大唐不夜城', '免费 · 夜景 · 拍照', 'linear-gradient(135deg,#667eea,#764ba2)']
+      ['秦始皇兵马俑', '门票 120 元 · 半日 · 必去', '/oneclick-trip-assets/xian-terracotta-army.png'],
+      ['西安城墙', '门票 54 元 · 骑行 · 2 小时', '/oneclick-trip-assets/xian-city-wall.png'],
+      ['大唐不夜城', '免费 · 夜景 · 2-3 小时', '/oneclick-trip-assets/xian-datang-mall.png']
     ],
     foods: [
-      ['肉夹馍与凉皮', '碳水小吃', '适合景点间隙快速补能。', '人均 20-35 元', '快餐', 'linear-gradient(135deg,#f6d365,#fda085)'],
-      ['羊肉泡馍', '正餐', '适合晚餐慢慢吃，注意分量较足。', '人均 45-70 元', '晚餐', 'linear-gradient(135deg,#c79081,#dfa579)']
+      ['肉夹馍与凉皮', '碳水组合', '适合景点之间快速补能。', '人均 ¥20-35', '钟楼附近', '/oneclick-trip-assets/xian-roujiamo-liangpi.png'],
+      ['羊肉泡馍', '本地正餐', '留给时间充裕的一顿晚餐。', '人均 ¥45-70', '洒金桥附近', '/oneclick-trip-assets/xian-yangrou-paomo.png']
     ]
   },
   dali: {
-    hero: 'linear-gradient(135deg, #89f7fe, #66a6ff)',
-    destTitle: '🏔️ 大理景点攻略',
-    destSub: '洱海 · 大理古城 · 喜洲 · 苍山',
+    image: '/oneclick-trip-assets/dali-erhai.png',
+    destTitle: '大理景点攻略',
+    destSub: '洱海、古城与村落，把节奏放慢才是正确打开方式。',
     routeCount: 4,
-    avgTime: '4天',
-    routeTitle: '推荐玩法：洱海骑行 + 古城慢生活',
-    routeDesc: '大理适合把节奏放慢，上午骑行或看海，下午古城和咖啡，晚上轻松吃饭。',
-    foodTitle: '🍄 大理美食灵感',
-    foodSub: '大理适合菌子火锅、乳扇和鲜花饼，安排在古城或洱海路线里更自然。',
+    avgTime: '4 天',
+    routeTitle: '洱海骑行 + 古城慢生活',
+    routeDesc: '上午看海或骑行，下午逛古城与咖啡店，傍晚把时间留给风和日落。',
+    foodTitle: '大理吃什么',
+    foodSub: '菌子、乳扇与鲜花饼，顺着古城和洱海路线安排。',
     spots: [
-      ['洱海生态廊道', '免费 · 3-4小时 · 骑行', 'linear-gradient(135deg,#89f7fe,#66a6ff)'],
-      ['大理古城', '免费 · 2-3小时 · 散步', 'linear-gradient(135deg,#a1c4fd,#c2e9fb)'],
-      ['喜洲古镇', '免费 · 半日 · 田园', 'linear-gradient(135deg,#fddb92,#d1fdff)']
+      ['洱海生态廊道', '免费 · 骑行 · 3-4 小时', '/oneclick-trip-assets/dali-erhai.png'],
+      ['大理古城', '免费 · 散步 · 2-3 小时', '/oneclick-trip-assets/dali-ancient-city.png'],
+      ['喜洲古镇', '免费 · 田园 · 半日', '/oneclick-trip-assets/dali-xizhou-town.png']
     ],
     foods: [
-      ['菌子火锅', '云南特色', '适合晚餐，选择正规餐厅。', '人均 90-140 元', '晚餐', 'linear-gradient(135deg,#fddb92,#d1fdff)'],
-      ['乳扇与鲜花饼', '轻食小吃', '适合古城散步时穿插体验。', '人均 20-40 元', '小吃', 'linear-gradient(135deg,#a1c4fd,#c2e9fb)']
+      ['菌子火锅', '云南特色', '选择正规餐厅并遵循煮制时间。', '人均 ¥90-140', '大理古城', '/oneclick-trip-assets/dali-mushroom-hotpot.png'],
+      ['乳扇与鲜花饼', '散步小吃', '适合古城路线中途品尝。', '人均 ¥20-40', '人民路附近', '/oneclick-trip-assets/dali-rushan-flower-cake.png']
     ]
   }
 }
 
-// ========= 计算属性 =========
-// computed 会根据依赖自动更新，适合把后端数据转换成页面展示需要的形状。
 const displayCities = computed(() => {
   if (!cities.value.length) return fallbackCities
   return cities.value.map((city) => ({
@@ -624,34 +888,36 @@ const selectedGuide = computed(() => guideData[selectedCityKey.value] || guideDa
 const selectedCity = computed(() => displayCities.value.find((city) => city.key === selectedCityKey.value) || displayCities.value[0])
 const currentAvatar = computed(() => findAvatar(currentUser.value?.avatarUrl))
 const selectedProfileAvatar = computed(() => findAvatar(profileForm.avatarUrl))
-const chengduCover = "linear-gradient(transparent 52%,rgba(0,0,0,0.68)), url('/oneclick-trip-assets/chengdu-destination.png') center 56%/cover no-repeat"
+const showTabbar = computed(() => ['home', 'dest', 'food', 'trip', 'mine'].includes(activePage.value))
+const budgetLabel = computed(() => budgetOptions.find((option) => option.value === planForm.budgetLevel)?.label || '预算适中')
+const guideHeroBackground = computed(() => {
+  return "linear-gradient(180deg, rgba(20, 34, 29, 0.08), rgba(20, 34, 29, 0.72)), url('" + selectedGuide.value.image + "')"
+})
 
-// 景点卡片优先使用后端 spots；如果后端没连上，就使用 guideData 里的原型数据。
 const spotCards = computed(() => {
   if (spots.value.length) {
     return spots.value.map((spot, index) => ({
       name: spot.name,
-      meta: `🎫${Number(spot.ticketPrice || 0)}元 · ${spot.playHours || 2}小时 · 评分 ${spot.rating || 4.6}`,
-      cover: `linear-gradient(transparent, rgba(0,0,0,0.5)), ${selectedGuide.value.spots[index % selectedGuide.value.spots.length][2]}`
+      meta: '门票 ' + Number(spot.ticketPrice || 0) + ' 元 · ' + (spot.playHours || 2) + ' 小时 · 评分 ' + (spot.rating || 4.6),
+      cover: "linear-gradient(180deg, rgba(20, 34, 29, 0.04), rgba(20, 34, 29, 0.4)), url('" + selectedGuide.value.spots[index % selectedGuide.value.spots.length][2] + "')"
     }))
   }
   return selectedGuide.value.spots.map((spot) => ({
     name: spot[0],
     meta: spot[1],
-    cover: `linear-gradient(transparent, rgba(0,0,0,0.5)), ${spot[2]}`
+    cover: "linear-gradient(180deg, rgba(20, 34, 29, 0.04), rgba(20, 34, 29, 0.4)), url('" + spot[2] + "')"
   }))
 })
 
-// 美食卡片同理：有后端数据就展示后端数据，否则展示本地原型数据。
 const foodCards = computed(() => {
   if (foods.value.length) {
     return foods.value.map((food, index) => ({
       name: food.name,
       tag: food.category || selectedGuide.value.foods[index % selectedGuide.value.foods.length][1],
       summary: food.summary,
-      price: `人均 ${food.avgPrice || 40} 元`,
+      price: '人均 ¥' + (food.avgPrice || 40),
       time: food.recommendedArea || '顺路安排',
-      cover: food.imageUrl ? `url('/${food.imageUrl}') center/cover no-repeat` : selectedGuide.value.foods[index % selectedGuide.value.foods.length][5]
+      cover: "url('" + (food.imageUrl ? '/' + food.imageUrl : selectedGuide.value.foods[index % selectedGuide.value.foods.length][5]) + "')"
     }))
   }
   return selectedGuide.value.foods.map((food) => ({
@@ -660,32 +926,50 @@ const foodCards = computed(() => {
     summary: food[2],
     price: food[3],
     time: food[4],
-    cover: food[5].startsWith('/') ? `url('${food[5]}') center/cover no-repeat` : food[5]
+    cover: "url('" + food[5] + "')"
   }))
 })
 
-// 行程详情优先展示后端生成的 plan.dayPlans；没有生成时展示一条原型示例。
 const planDays = computed(() => {
   if (plan.value?.dayPlans?.length) return plan.value.dayPlans
   return [
     {
       dayNo: 1,
-      title: 'Day 1 市区经典人文',
+      title: 'Day 1 · 7 月 18 日',
       items: [
-        { itemType: 'SPOT', title: '宽窄巷子', description: '清代古街区，适合散步和小吃。', startTime: '09:00', address: '青羊区', cost: 0 },
-        { itemType: 'FOOD', title: '龙抄手', description: '午餐小吃，轻松解决。', startTime: '12:00', address: '春熙路', cost: 60 },
-        { itemType: 'SPOT', title: '杜甫草堂', description: '人文历史景点。', startTime: '14:00', address: '青华路', cost: 120 }
+        { itemType: 'TRANSPORT', title: '高铁抵达成都东站', description: '抵达后乘地铁前往春熙路，先寄存行李。', startTime: '09:42', address: '成都东站', duration: '约 35 分钟', cost: 12 },
+        { itemType: 'FOOD', title: '张老二凉粉', description: '用甜水面、凉粉和冰粉作为成都第一顿，分量不会太撑。', startTime: '11:30', address: '文殊院附近', duration: '约 1 小时', cost: 46 },
+        { itemType: 'SPOT', title: '文殊院与周边街巷', description: '先走安静的人文路线，再慢慢逛到人民公园。', startTime: '13:00', address: '青羊区文殊院街', duration: '约 2.5 小时', cost: 0 },
+        { itemType: 'HOTEL', title: '春熙路设计酒店', description: '靠近地铁 2 号线，去第二天的熊猫基地更顺。', startTime: '17:10', address: '锦江区春熙路', duration: '入住 2 晚', cost: 528 }
+      ]
+    },
+    {
+      dayNo: 2,
+      title: 'Day 2 · 7 月 19 日',
+      items: [
+        { itemType: 'SPOT', title: '成都大熊猫繁育研究基地', description: '上午活跃度更高，优先看太阳产房与成年熊猫区。', startTime: '08:30', address: '成华区熊猫大道', duration: '约 3.5 小时', cost: 55 },
+        { itemType: 'FOOD', title: '建设路小吃街', description: '选三到四样小吃共享，避免下午太撑。', startTime: '13:10', address: '成华区建设路', duration: '约 1.5 小时', cost: 90 },
+        { itemType: 'SPOT', title: '东郊记忆', description: '工业风街区适合散步与拍照，傍晚光线更柔和。', startTime: '15:10', address: '成华区建设南支路', duration: '约 2 小时', cost: 0 },
+        { itemType: 'FOOD', title: '玉林社区火锅', description: '选择鸳鸯锅，提前在线取号可减少等待。', startTime: '19:00', address: '武侯区玉林路', duration: '约 2 小时', cost: 220 }
+      ]
+    },
+    {
+      dayNo: 3,
+      title: 'Day 3 · 7 月 20 日',
+      items: [
+        { itemType: 'TRANSPORT', title: '成都到都江堰城际列车', description: '提前 35 分钟出发到犀浦站，刷证进站。', startTime: '09:10', address: '犀浦站', duration: '约 30 分钟', cost: 20 },
+        { itemType: 'SPOT', title: '都江堰景区', description: '从秦堰楼方向进入，路线以下行为主，更省体力。', startTime: '10:20', address: '都江堰市公园路', duration: '约 4 小时', cost: 80 },
+        { itemType: 'FOOD', title: '南桥河鲜与小吃', description: '返程前在南桥附近吃一顿，不再额外绕路。', startTime: '14:50', address: '都江堰南桥', duration: '约 1 小时', cost: 96 },
+        { itemType: 'TRANSPORT', title: '返回成都并前往车站', description: '预留 90 分钟机动时间，行李已寄存在酒店。', startTime: '16:20', address: '离堆公园站', duration: '约 1.5 小时', cost: 26 }
       ]
     }
   ]
 })
 
+const activeDay = computed(() => planDays.value.find((day) => Number(day.dayNo) === Number(selectedDayNo.value)) || planDays.value[0])
+
 onMounted(async () => {
-  // 页面加载时，如果本地已有 token，就先向后端确认当前用户是否仍然有效。
-  if (isAuthenticated.value) {
-    await refreshProfile()
-  }
-  // 再加载城市、景点、美食等首页需要的数据。
+  if (isAuthenticated.value) await refreshProfile()
   await loadInitialData()
 })
 
@@ -695,7 +979,6 @@ function findAvatar(avatarId) {
 
 async function loadInitialData() {
   try {
-    // 能请求成功说明后端在线，页面就使用真实数据库数据。
     cities.value = await api.cities()
     backendOnline.value = true
     if (cities.value.length) {
@@ -703,7 +986,6 @@ async function loadInitialData() {
       selectedCityKey.value = cityKeyByName(cities.value[0].name)
     }
   } catch {
-    // 后端没启动时不让页面空白，退回本地演示数据。
     cities.value = fallbackCities
     backendOnline.value = false
   }
@@ -721,7 +1003,6 @@ async function loadCityDetail() {
     return
   }
   try {
-    // 同一个城市详情页需要景点、美食、酒店，三类数据可以并行请求。
     const [spotData, foodData, hotelData] = await Promise.all([
       api.spots(city.id),
       api.foods(city.id),
@@ -739,10 +1020,9 @@ async function loadCityDetail() {
 }
 
 function go(page) {
-  // 除登录页外，其他页面都要求先登录。
   if (page !== 'login' && !isAuthenticated.value) {
     activePage.value = 'login'
-    toastText.value = '请先登录'
+    showToast('请先登录')
     return
   }
   activePage.value = page
@@ -754,7 +1034,6 @@ async function goGuide(page, cityKey) {
     return
   }
   selectedCityKey.value = cityKey || selectedCityKey.value
-  // 切换城市时，重新加载这个城市的景点/美食/酒店。
   await loadCityDetail()
   activePage.value = page
 }
@@ -768,19 +1047,13 @@ function readSavedUser() {
 }
 
 function saveUser(user) {
-  if (user) {
-    localStorage.setItem(USER_KEY, JSON.stringify(user))
-  } else {
-    localStorage.removeItem(USER_KEY)
-  }
+  if (user) localStorage.setItem(USER_KEY, JSON.stringify(user))
+  else localStorage.removeItem(USER_KEY)
 }
 
 function normalizeUser(user) {
   if (!user) return null
-  return {
-    ...user,
-    avatarUrl: user.avatarUrl || 'avatar-compass'
-  }
+  return { ...user, avatarUrl: user.avatarUrl || 'avatar-compass' }
 }
 
 function syncProfileForm(user = currentUser.value) {
@@ -796,7 +1069,6 @@ async function refreshProfile() {
     saveUser(data)
     syncProfileForm(data)
   } catch {
-    // token 失效或后端拒绝时，清空本地登录态，让用户重新登录。
     setToken('')
     saveUser(null)
     currentUser.value = null
@@ -819,11 +1091,7 @@ async function handleLogin() {
   }
   loginLoading.value = true
   try {
-    // 登录成功后后端会返回 token 和用户基础资料。
-    const data = await api.login({
-      username: loginForm.username,
-      password: loginForm.password
-    })
+    const data = await api.login({ username: loginForm.username, password: loginForm.password })
     setToken(data.token)
     currentUser.value = normalizeUser(data)
     saveUser(currentUser.value)
@@ -831,7 +1099,7 @@ async function handleLogin() {
     isAuthenticated.value = true
     backendOnline.value = true
     activePage.value = 'home'
-    toastText.value = `欢迎回来，${data.nickname || data.username}`
+    showToast('欢迎回来，' + (data.nickname || data.username))
     await loadInitialData()
   } catch (error) {
     loginError.value = error.message || '登录失败，请检查账号和密码'
@@ -853,15 +1121,11 @@ async function handleProfileUpdate() {
   }
   profileLoading.value = true
   try {
-    // 保存资料会同时更新后端数据库和本地缓存。
-    const data = normalizeUser(await api.updateProfile({
-      nickname: profileForm.nickname,
-      avatarUrl: profileForm.avatarUrl
-    }))
+    const data = normalizeUser(await api.updateProfile({ nickname: profileForm.nickname, avatarUrl: profileForm.avatarUrl }))
     currentUser.value = data
     saveUser(data)
     syncProfileForm(data)
-    toastText.value = '个人资料已更新'
+    showToast('个人资料已更新')
     activePage.value = 'mine'
   } catch (error) {
     profileError.value = error.message || '保存失败，请稍后再试'
@@ -871,15 +1135,15 @@ async function handleProfileUpdate() {
 }
 
 function logout() {
-  // 退出登录只需要清掉本地 token 和用户缓存，后端 JWT 是无状态的。
   setToken('')
   saveUser(null)
   currentUser.value = null
   isAuthenticated.value = false
   plan.value = null
   aiReply.value = ''
+  chatMessages.value = []
   activePage.value = 'login'
-  toastText.value = '已退出登录'
+  showToast('已退出登录')
 }
 
 async function selectCityById(cityId) {
@@ -892,57 +1156,131 @@ async function selectCityById(cityId) {
 
 function togglePreference(tag) {
   const index = planForm.interests.indexOf(tag)
-  if (index >= 0) {
-    planForm.interests.splice(index, 1)
-  } else {
-    planForm.interests.push(tag)
-  }
+  if (index >= 0) planForm.interests.splice(index, 1)
+  else planForm.interests.push(tag)
 }
 
 async function generatePlan() {
   generateLoading.value = true
   try {
-    if (!backendOnline.value) {
-      plan.value = null
-      toastText.value = '后端未连接，当前展示原型行程'
-      activePage.value = 'trip'
-      return
-    }
-    // 调用 Java 后端规则版生成接口，返回的行程会直接用于行程详情页。
-    plan.value = await api.generatePlan(planForm)
+    if (backendOnline.value) plan.value = await api.generatePlan(planForm)
+    selectedDayNo.value = 1
     activePage.value = 'trip'
+    showToast(backendOnline.value ? '行程已生成' : '已生成演示行程')
   } catch (error) {
-    toastText.value = error.message
+    showToast(error.message || '生成失败，请稍后重试')
   } finally {
     generateLoading.value = false
   }
 }
 
+function startFromPrompt() {
+  const message = promptText.value || '帮我规划一次轻松的成都旅行'
+  aiInput.value = message
+  promptText.value = ''
+  activePage.value = 'chat'
+  callAiPlaceholder(message)
+}
+
+function useSuggestion(message) {
+  aiInput.value = message
+  callAiPlaceholder(message)
+}
+
 async function callAiPlaceholder(message) {
-  const text = message || '测试 AI 占位接口'
-  try {
-    if (!backendOnline.value) {
-      aiReply.value = 'AI 助手暂未接入。后端未启动时，这里显示本地占位回复。'
-      return
+  const text = (message || '').trim()
+  if (!text || agentDemoRunning.value) return
+  chatMessages.value.push(text)
+  aiInput.value = ''
+  aiReply.value = ''
+  agentDemoRunning.value = true
+  clearTimeout(agentTimer)
+
+  let serverMessage = ''
+  if (backendOnline.value) {
+    try {
+      const data = await api.aiChat(text)
+      serverMessage = data?.message || ''
+    } catch {
+      serverMessage = ''
     }
-    // 当前只是占位回复；未来 FastAPI AI 引擎接入后，前端调用方式可以保持不变。
-    const data = await api.aiChat(text)
-    aiReply.value = data.message
-  } catch (error) {
-    aiReply.value = error.message
+  }
+
+  agentTimer = setTimeout(() => {
+    agentDemoRunning.value = false
+    aiReply.value = serverMessage && !serverMessage.includes('暂未接入')
+      ? serverMessage
+      : '我把熊猫基地放在更适合观赏的上午，市区景点按片区串联，并为火锅与都江堰门票预留了预订入口。'
+  }, 1800)
+}
+
+function destinationStyle(city, index) {
+  const images = {
+    chengdu: '/oneclick-trip-assets/chengdu-destination.png',
+    hangzhou: '/oneclick-trip-assets/hangzhou-west-lake.png',
+    xian: '/oneclick-trip-assets/xian-city-wall.png',
+    dali: '/oneclick-trip-assets/dali-erhai.png'
+  }
+  const positions = ['center 55%', 'center 30%', 'center 52%', 'center 18%']
+  return {
+    backgroundImage: "linear-gradient(180deg, rgba(17, 33, 28, 0.02), rgba(17, 33, 28, 0.72)), url('" + images[city.key] + "')",
+    backgroundPosition: positions[index % positions.length]
   }
 }
 
-function destinationBackground(city, index) {
-  if (city.key === 'chengdu') {
-    return "linear-gradient(transparent 48%,rgba(0,0,0,0.72)), url('/oneclick-trip-assets/chengdu-destination.png') center/cover no-repeat"
-  }
-  const gradients = [
-    'linear-gradient(transparent 50%,rgba(0,0,0,0.7)), linear-gradient(135deg, #4ECDC4, #44A08D)',
-    'linear-gradient(transparent 50%,rgba(0,0,0,0.7)), linear-gradient(135deg, #A8E6CF, #3E8E7E)',
-    'linear-gradient(transparent 50%,rgba(0,0,0,0.7)), linear-gradient(135deg, #FFD93D, #FF8C42)'
-  ]
-  return gradients[index % gradients.length]
+function itemIcon(type) {
+  if (type === 'FOOD') return Food
+  if (type === 'HOTEL') return OfficeBuilding
+  if (type === 'TRANSPORT') return Van
+  return Location
+}
+
+function itemTypeLabel(type) {
+  if (type === 'FOOD') return '本地美食'
+  if (type === 'HOTEL') return '住宿'
+  if (type === 'TRANSPORT') return '交通'
+  return '景点'
+}
+
+function isBookable(type) {
+  return ['SPOT', 'FOOD', 'HOTEL', 'TRANSPORT'].includes(type)
+}
+
+function bookingLabel(type) {
+  if (type === 'HOTEL') return '查看房型'
+  if (type === 'FOOD') return '查看预约'
+  if (type === 'TRANSPORT') return '查看车次'
+  return '查看门票'
+}
+
+function bookingOffer(item) {
+  if (item.itemType === 'HOTEL') return '舒适大床房 · ¥528 / 2 晚'
+  if (item.itemType === 'FOOD') return '双人餐预约 · 到店付款'
+  if (item.itemType === 'TRANSPORT') return '二等座 · ¥' + (item.cost || 20)
+  return '成人票 · ¥' + (item.cost || 55)
+}
+
+function toggleBooking(title) {
+  bookingItem.value = bookingItem.value === title ? '' : title
+}
+
+function confirmBooking(item) {
+  bookingItem.value = ''
+  showToast('已将“' + item.title + '”加入预订清单')
+}
+
+function dayTheme(dayNo) {
+  if (Number(dayNo) === 2) return '熊猫、街区与火锅'
+  if (Number(dayNo) === 3) return '都江堰慢游与返程'
+  return '抵达成都，先感受市井'
+}
+
+function showToast(message) {
+  clearTimeout(toastTimer)
+  toastText.value = message
+  toastTimer = setTimeout(() => {
+    toastText.value = ''
+  }, 2200)
 }
 
 function cityKeyByName(name) {
@@ -953,9 +1291,9 @@ function cityKeyByName(name) {
 }
 
 function summaryShortByName(name) {
-  if (name?.includes('杭州')) return '人间天堂 · 西湖美景'
-  if (name?.includes('西安')) return '十三朝古都 · 碳水天堂'
-  if (name?.includes('大理')) return '苍山洱海 · 风花雪月'
-  return '天府之国 · 美食之都'
+  if (name?.includes('杭州')) return '湖边慢慢走'
+  if (name?.includes('西安')) return '古都与碳水'
+  if (name?.includes('大理')) return '吹风看洱海'
+  return '美食与松弛感'
 }
 </script>

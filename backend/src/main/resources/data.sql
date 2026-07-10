@@ -38,6 +38,13 @@ VALUES
   (8, 4, '乳扇与鲜花饼', '轻食小吃', '适合古城散步时穿插体验。', '大理古城、喜洲', 35, NULL, 2)
 ON DUPLICATE KEY UPDATE summary = VALUES(summary), avg_price = VALUES(avg_price), image_url = VALUES(image_url);
 
+UPDATE food SET image_url = 'oneclick-trip-assets/hangzhou-longjing-snacks.png' WHERE id = 3;
+UPDATE food SET image_url = 'oneclick-trip-assets/hangzhou-pianerchuan.png' WHERE id = 4;
+UPDATE food SET image_url = 'oneclick-trip-assets/xian-roujiamo-liangpi.png' WHERE id = 5;
+UPDATE food SET image_url = 'oneclick-trip-assets/xian-yangrou-paomo.png' WHERE id = 6;
+UPDATE food SET image_url = 'oneclick-trip-assets/dali-mushroom-hotpot.png' WHERE id = 7;
+UPDATE food SET image_url = 'oneclick-trip-assets/dali-rushan-flower-cake.png' WHERE id = 8;
+
 INSERT INTO hotel (id, city_id, name, area, summary, price_level, avg_price, rating)
 VALUES
   (1, 1, '春熙路舒适酒店', '春熙路/太古里', '交通方便，适合第一次来成都和美食路线。', 'MEDIUM', 360, 4.6),
