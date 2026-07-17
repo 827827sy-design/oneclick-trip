@@ -6,6 +6,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.domain.models import (
+    BudgetEstimate,
     BudgetFeasibility,
     ClarificationReply,
     Intent,
@@ -20,6 +21,7 @@ FIELD_LABELS = {
     "duration": "旅行天数或出发与返程日期",
     "people": "同行人数",
     "budget": "大概预算",
+    "budget_confirmation": "想采用的预算档位或总预算",
     "current_plan": "要修改的已有行程",
     "booking_type": "想预订酒店、交通还是门票",
     "selected_option_ids": "想预订的具体选项",
@@ -39,6 +41,7 @@ class ClarificationAgent(Protocol):
         missing_fields: list[str],
         preferences: UserPreferences,
         budget_feasibility: BudgetFeasibility | None = None,
+        budget_estimate: BudgetEstimate | None = None,
         conversation_context: list[str] | None = None,
     ) -> ClarificationReply:
         """Create user-facing clarification copy without changing routing state."""
@@ -51,6 +54,19 @@ class RuleBasedClarificationAgent:
     """Availability fallback used only when no chat model can answer."""
 
     def compose(self, **kwargs) -> ClarificationReply:
+        estimate = kwargs.get("budget_estimate")
+        if estimate is not None:
+            destination = kwargs["entities"].destination or "这趟旅行"
+            return ClarificationReply(
+                kicker="两档预算已估好",
+                title=f"{destination}可以这样控制花费",
+                message=(
+                    f"极限穷游约 ¥{estimate.survival.total}：青旅、绿皮火车或最低价交通，"
+                    "市内步行公交/共享助力车，泡面和基础饱腹餐，免费景点为主。"
+                    f"正常舒适约 ¥{estimate.comfortable.total}：经济型住宿、合理交通、本地餐饮和主要景点。"
+                    "两档都是 AI 保守估算，不是实时价格。回复‘选穷游版’、‘选舒适版’或直接说总预算即可。"
+                ),
+            )
         feasibility = kwargs.get("budget_feasibility")
         if feasibility is not None and not feasibility.feasible:
             destination = kwargs["entities"].destination or "这趟旅行"
@@ -111,6 +127,7 @@ class LangChainClarificationAgent:
         missing_fields: list[str],
         preferences: UserPreferences,
         budget_feasibility: BudgetFeasibility | None = None,
+        budget_estimate: BudgetEstimate | None = None,
         conversation_context: list[str] | None = None,
     ) -> list[SystemMessage | HumanMessage]:
         requested = [FIELD_LABELS.get(field, field) for field in missing_fields]
@@ -125,10 +142,17 @@ class LangChainClarificationAgent:
                     "已知目的地时，标题要自然地接住目的地；禁止使用‘先了解几个细节’、"
                     "‘还需要一点信息’、‘请补充’这类泛化标题。"
                     "正文最多两句，可以给简短回答示例。"
+                    "choice_prompt 输出 null，actions 始终输出空数组；可点击选项由工作流代码生成。"
                     "不得自行增加缺失项，不要生成完整行程，也不得承诺已经查到尚未查询的数据。"
                     "如果给出了 budget_feasibility 且 feasible=false，不要再次询问当前预算是多少；"
                     "自然说明当前预算与保守估算之间的差额，再让用户选择提高预算或减少安排。"
                     "不得擅自把 suggested_budget 当成用户已经接受的预算。"
+                    "budget_estimate 为空时，禁止自行给出预算区间、档位金额或假装已经完成估算；"
+                    "只自然询问用户选择预算按钮或输入自己的金额。"
+                    "如果给出了 budget_estimate，必须准确保留两档金额：极限穷游档要明确写出青旅、"
+                    "绿皮火车或最低价交通、市内步行公交/共享助力车、泡面与基础饱腹餐、免费景点为主；"
+                    "正常舒适档要写出经济型住宿、合理交通、本地餐饮和主要景点。"
+                    "说明它们是 AI 保守估算而非实时价格，并请用户选档位或直接给出总预算；不要继续问‘预算多少’。"
                 )
             ),
             HumanMessage(
@@ -139,6 +163,7 @@ class LangChainClarificationAgent:
                     f"长期偏好：{preferences.model_dump_json()}\n"
                     f"最近 20 轮对话：{conversation_context or []}\n"
                     f"预算评估：{budget_feasibility.model_dump_json() if budget_feasibility else '{}'}\n"
+                    f"双档预算估算：{budget_estimate.model_dump_json() if budget_estimate else '{}'}\n"
                     f"这次只需要询问：{requested}"
                 )
             ),

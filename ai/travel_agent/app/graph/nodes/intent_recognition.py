@@ -1,10 +1,20 @@
 import re
+from datetime import date, timedelta
+from decimal import Decimal
 
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import Runnable, RunnableLambda
 
 from app.agents.intent_agent import IntentAgent
-from app.domain.models import Intent, IntentContext, NextAction, TravelEntities, UserPreferences
+from app.domain.models import (
+    BudgetMode,
+    BudgetScope,
+    Intent,
+    IntentContext,
+    NextAction,
+    TravelEntities,
+    UserPreferences,
+)
 from app.graph.state import TravelState, TravelStatePatch
 from app.graph.tool_runtime import reset_tool_execution
 
@@ -94,7 +104,12 @@ def make_intent_recognition_node(
             query,
             decision.entities.model_dump(exclude_unset=True),
         )
-        intent = _resolve_intent_for_slot_follow_up(state, decision.intent, explicit_update)
+        intent = _resolve_intent_for_slot_follow_up(
+            state,
+            decision.intent,
+            explicit_update,
+            query,
+        )
         inherited = _entity_base_for_turn(
             state,
             previous,
@@ -150,10 +165,25 @@ def make_intent_recognition_node(
     return RunnableLambda(recognize_intent, afunc=arecognize_intent, name="recognize_intent")
 
 
-def _resolve_intent_for_slot_follow_up(state: TravelState, detected_intent, explicit_update: dict):
+def _resolve_intent_for_slot_follow_up(
+    state: TravelState,
+    detected_intent,
+    explicit_update: dict,
+    query: str,
+):
     previous_intent = state.get("intent")
     missing_fields = set(state.get("missing_fields", []))
-    if detected_intent.value != "general_qa" or not missing_fields:
+    if not missing_fields:
+        return detected_intent
+
+    if (
+        previous_intent is Intent.TRIP_PLAN
+        and detected_intent in {Intent.GENERAL_QA, Intent.MODIFY_PLAN}
+        and _looks_like_trip_preference_update(query, explicit_update)
+    ):
+        return previous_intent
+
+    if detected_intent.value != "general_qa":
         return detected_intent
 
     slot_keys = {
@@ -161,7 +191,8 @@ def _resolve_intent_for_slot_follow_up(state: TravelState, detected_intent, expl
         "origin": {"origin"},
         "duration": {"days", "start_date", "end_date"},
         "people": {"people"},
-        "budget": {"budget", "budget_scope"},
+        "budget": {"budget", "budget_scope", "budget_mode"},
+        "budget_confirmation": {"budget", "budget_scope", "budget_mode"},
         "booking_type": {"booking_types"},
         "selected_option_ids": {"selected_option_ids"},
     }
@@ -237,10 +268,10 @@ def _sanitize_explicit_update(
     Context helps resolve intent and references, but a budget or party size is
     considered explicit only when the current user message actually says it.
     """
-    sanitized = dict(explicit_update)
+    sanitized = _apply_explicit_budget_update(state, query, dict(explicit_update))
     if not _query_sets_budget(state, query):
         sanitized.pop("budget", None)
-        sanitized.pop("budget_scope", None)
+    sanitized = _apply_explicit_date_update(state, query, sanitized)
     if not re.search(
         r"(?:\d{1,3}|[一二两三四五六七八九十])\s*(?:个)?人|独自|单人|情侣|夫妻|一家|亲子",
         query,
@@ -250,11 +281,181 @@ def _sanitize_explicit_update(
 
 
 def _query_sets_budget(state: TravelState, query: str) -> bool:
-    amount = r"(?:\d+(?:\.\d+)?|[一二两三四五六七八九十百千万]+)"
-    if re.search(rf"(?:预算|人均|每人)[^，。；]{{0,8}}{amount}", query):
-        return True
-    if re.search(rf"{amount}\s*(?:元|块)(?:左右|以内|上下)?", query):
-        return True
-    if "budget" not in set(state.get("missing_fields", [])):
+    if _is_relative_budget_change(query):
         return False
-    return bool(re.fullmatch(rf"\s*{amount}\s*(?:元|块)?\s*(?:左右|以内|上下)?\s*", query))
+    return (
+        _extract_budget_amount(state, query) is not None
+        or _selected_estimate_tier(state, query) is not None
+    )
+
+
+def _apply_explicit_budget_update(
+    state: TravelState,
+    query: str,
+    sanitized: dict,
+) -> dict:
+    if _is_relative_budget_change(query):
+        sanitized.pop("budget", None)
+        sanitized.pop("budget_scope", None)
+        sanitized.pop("budget_mode", None)
+        return sanitized
+    estimate = state.get("budget_estimate")
+    selected_tier = _selected_estimate_tier(state, query)
+    amount = _extract_budget_amount(state, query)
+    if selected_tier == "survival" and estimate is not None:
+        amount = estimate.survival.total
+    elif selected_tier == "comfortable" and estimate is not None:
+        amount = estimate.comfortable.total
+
+    if amount is not None:
+        sanitized["budget"] = amount
+        sanitized["budget_mode"] = (
+            BudgetMode.MINIMIZE if selected_tier == "survival" else BudgetMode.FIXED
+        )
+        if _budget_scope_from_query(query) is not None:
+            sanitized["budget_scope"] = _budget_scope_from_query(query)
+        elif estimate is not None or set(state.get("missing_fields", [])).intersection(
+            {"budget", "budget_confirmation"}
+        ):
+            sanitized["budget_scope"] = BudgetScope.TOTAL
+    else:
+        sanitized.pop("budget", None)
+        scope = _budget_scope_from_query(query)
+        if scope is not None:
+            sanitized["budget_scope"] = scope
+        else:
+            sanitized.pop("budget_scope", None)
+        if _requests_budget_estimate(query):
+            sanitized["budget_mode"] = (
+                BudgetMode.MINIMIZE if _requests_minimum_budget(query) else BudgetMode.ESTIMATE
+            )
+            sanitized.pop("budget_scope", None)
+        elif "budget_mode" in sanitized:
+            sanitized.pop("budget_mode", None)
+    return sanitized
+
+
+def _extract_budget_amount(state: TravelState, query: str) -> Decimal | None:
+    if _is_relative_budget_change(query):
+        return None
+    number = r"(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百千万]+)"
+    separator = r"[^，。；\d零〇一二两三四五六七八九十百千万]"
+    patterns = [
+        rf"(?:总预算|预算|人均|每人|总共){separator}{{0,8}}{number}",
+        rf"{number}\s*(?:元|块)(?:左右|以内|上下)?",
+    ]
+    if set(state.get("missing_fields", [])).intersection({"budget", "budget_confirmation"}):
+        patterns.extend(
+            [
+                rf"(?:那就|就按|就|按|控制在|定在|选)\s*{number}",
+                rf"^\s*{number}\s*(?:元|块)?\s*(?:左右|以内|上下)?\s*(?:吧|就行|可以)?\s*$",
+            ]
+        )
+    for pattern in patterns:
+        match = re.search(pattern, query)
+        if match:
+            return _parse_budget_number(match.group(1))
+    return None
+
+
+def _is_relative_budget_change(query: str) -> bool:
+    return bool(re.search(r"预算.{0,4}(?:降低|减少|下调|提高|增加|上调)\s*\d", query))
+
+
+def _budget_scope_from_query(query: str) -> BudgetScope | None:
+    if re.search(r"人均|每人", query):
+        return BudgetScope.PER_PERSON
+    if re.search(r"总预算|总共|全部预算|整体预算|预算", query):
+        return BudgetScope.TOTAL
+    return None
+
+
+def _requests_budget_estimate(query: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:估计|估算|估一下|算算|帮我算).{0,12}(?:预算|费用|多少钱)|"
+            r"(?:预算|费用).{0,12}(?:估|算|多少|怎么定)|"
+            r"(?:不知道|不清楚|没概念).{0,8}(?:预算|多少钱)|"
+            r"需要多少(?:预算|钱)",
+            query,
+        )
+    )
+
+
+def _requests_minimum_budget(query: str) -> bool:
+    return bool(
+        re.search(r"尽可能少|越少越好|越省越好|最低预算|最省|穷游|能省则省", query)
+    )
+
+
+def _selected_estimate_tier(state: TravelState, query: str) -> str | None:
+    if state.get("budget_estimate") is None:
+        return None
+    if re.search(
+        r"极限穷游|穷游版|最低预算|最省(?:方案|那档|版)?|预算再省(?:一)?点|再省(?:一)?点|便宜的",
+        query,
+    ):
+        return "survival"
+    if re.search(r"正常舒适|舒适版|舒服(?:一点|那档|版)?|正常玩", query):
+        return "comfortable"
+    return None
+
+
+def _looks_like_trip_preference_update(query: str, explicit_update: dict) -> bool:
+    if {"explicit_preferences", "explicit_dislikes"}.intersection(explicit_update):
+        return True
+    return bool(
+        re.search(
+            r"喜欢|不喜欢|不要|避开|多安排|少安排|想吃|爱吃|清淡|辣|海鲜|美食|徒步|拍照|早起|购物",
+            query,
+        )
+    )
+
+
+def _parse_budget_number(raw: str) -> Decimal:
+    if re.fullmatch(r"\d+(?:\.\d+)?", raw):
+        return Decimal(raw)
+    digits = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
+              "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+    small_units = {"十": 10, "百": 100, "千": 1000}
+    total = 0
+    section = 0
+    number = 0
+    for character in raw:
+        if character in digits:
+            number = digits[character]
+        elif character in small_units:
+            section += (number or 1) * small_units[character]
+            number = 0
+        elif character == "万":
+            total += (section + number or 1) * 10000
+            section = 0
+            number = 0
+    return Decimal(total + section + number)
+
+
+def _apply_explicit_date_update(
+    state: TravelState,
+    query: str,
+    sanitized: dict,
+) -> dict:
+    del state
+    relative_days = {"今天": 0, "明天": 1, "后天": 2}
+    relative = next((offset for marker, offset in relative_days.items() if marker in query), None)
+    has_numeric_date = bool(
+        re.search(r"(?:\d{4}年)?\d{1,2}月\d{1,2}[日号]|\d{4}[-/]\d{1,2}[-/]\d{1,2}", query)
+    )
+    if relative is None and not has_numeric_date:
+        sanitized.pop("start_date", None)
+        sanitized.pop("end_date", None)
+        return sanitized
+
+    if relative is not None:
+        start = date.today() + timedelta(days=relative)
+        sanitized["start_date"] = start
+        days = sanitized.get("days")
+        if days:
+            sanitized["end_date"] = start + timedelta(days=int(days) - 1)
+        else:
+            sanitized.pop("end_date", None)
+    return sanitized

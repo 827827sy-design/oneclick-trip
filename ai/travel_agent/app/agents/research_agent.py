@@ -76,6 +76,7 @@ class LangChainPhase1ResearchAgent:
                     "本次明确要求优先于历史记忆。景点应是真实存在且你有把握的地点，覆盖用户偏好并避免明确反感项。"
                     "住宿只推荐区域，不虚构酒店；交通只给方式级建议，不虚构班次、航班号或实时余票。"
                     "票价、住宿价和交通价只能填写保守的 AI 估算，用于预算规划，不得声称为实时报价。"
+                    "transport_options.price 统一表示每人往返城际交通的估算总价，不是单程价格；"
                     "没有出发地时 transport_options 为空。data_mode 必须为 AI_KNOWLEDGE。"
                     "所有候选必须有唯一 ID；禁止生成 quote_id、供应商 option_id 或可直接预订的库存。"
                     "输出必须符合以下 JSON Schema："

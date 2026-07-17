@@ -247,6 +247,30 @@
                     </span>
                   </div>
 
+                  <fieldset
+                    v-if="turn.response.actions.length"
+                    class="agent-choice-group"
+                    :disabled="!canChooseAgentAction(turn)"
+                  >
+                    <legend>{{ turn.response.choicePrompt }}</legend>
+                    <div class="agent-choice-grid">
+                      <button
+                        v-for="action in turn.response.actions"
+                        :key="action.id"
+                        type="button"
+                        :class="{
+                          recommended: action.recommended,
+                          selected: turn.actionSelected === action.id
+                        }"
+                        @click="chooseAgentAction(turn, action)"
+                      >
+                        <span>{{ action.label }}</span>
+                        <small v-if="turn.actionSelected === action.id"><el-icon><CircleCheck /></el-icon>已选择</small>
+                        <small v-else-if="action.recommended">推荐</small>
+                      </button>
+                    </div>
+                  </fieldset>
+
                   <div v-if="turn.response.tools.length" class="agent-tools" aria-label="本次调用工具">
                     <span v-for="tool in turn.response.tools" :key="tool"><el-icon><CircleCheck /></el-icon>{{ tool }}</span>
                   </div>
@@ -275,11 +299,6 @@
           </div>
 
           <div class="chat-composer">
-            <div class="chat-shortcuts">
-              <button type="button" @click="useSuggestion('预算再省一点')">预算再省一点</button>
-              <button type="button" @click="useSuggestion('不要早起')">不要早起</button>
-              <button type="button" @click="useSuggestion('多安排本地美食')">多安排美食</button>
-            </div>
             <form @submit.prevent="sendAgentMessage(aiInput)">
               <textarea v-model.trim="aiInput" rows="1" placeholder="继续补充你的想法" aria-label="继续补充旅行需求"></textarea>
               <button type="submit" aria-label="发送" :disabled="agentRequestRunning"><el-icon><Position /></el-icon></button>
@@ -1228,7 +1247,8 @@ async function sendAgentMessage(message) {
     userText: text,
     loading: true,
     error: '',
-    response: null
+    response: null,
+    actionSelected: ''
   }
   chatTurns.value.push(turn)
   aiInput.value = ''
@@ -1259,6 +1279,18 @@ async function retryAgentTurn(turn) {
   if (agentRequestRunning.value) return
   turn.response = null
   await runAgentTurn(turn)
+}
+
+function canChooseAgentAction(turn) {
+  if (agentRequestRunning.value || turn.actionSelected) return false
+  const latestResponseTurn = [...chatTurns.value].reverse().find((item) => item.response)
+  return latestResponseTurn?.id === turn.id
+}
+
+async function chooseAgentAction(turn, action) {
+  if (!canChooseAgentAction(turn)) return
+  turn.actionSelected = action.id
+  await sendAgentMessage(action.message)
 }
 
 async function resumeBooking(turn, confirmed) {
@@ -1363,7 +1395,8 @@ function messagesToChatTurns(messages) {
         userText: message.content,
         loading: false,
         error: '',
-        response: null
+        response: null,
+        actionSelected: ''
       }
       turns.push(pendingTurn)
       continue
@@ -1375,7 +1408,8 @@ function messagesToChatTurns(messages) {
         userText: '继续上一次会话',
         loading: false,
         error: '',
-        response: null
+        response: null,
+        actionSelected: ''
       }
       turns.push(pendingTurn)
     }
@@ -1394,6 +1428,12 @@ function messagesToChatTurns(messages) {
   if (pendingTurn && !pendingTurn.response && !pendingTurn.error) {
     pendingTurn.error = '上次请求没有完成，可以重新尝试。'
   }
+  turns.forEach((turn, index) => {
+    const nextTurn = turns[index + 1]
+    if (!nextTurn || !turn.response?.actions?.length) return
+    const selected = turn.response.actions.find((action) => action.message === nextTurn.userText)
+    if (selected) turn.actionSelected = selected.id
+  })
   return turns
 }
 
@@ -1418,9 +1458,27 @@ function normalizeAgentResponse(data) {
   const selectedTools = Array.isArray(state.selected_tools) ? state.selected_tools : []
   const bookableCount = currentPlan ? countBookableItems(currentPlan, state.selected_options) : 0
   const budgetFeasibility = state.budget_feasibility || null
+  const budgetEstimate = state.budget_estimate || null
   const budgetBlocked = budgetFeasibility?.feasible === false
   const needsInput = state.next_action === 'ask_user' || Boolean(state.missing_fields?.length)
-  const metrics = budgetBlocked
+  const clarification = state.clarification_reply || {}
+  const actions = Array.isArray(clarification.actions)
+    ? clarification.actions
+        .filter((action) => action?.id && action?.label && action?.message)
+        .map((action) => ({
+          id: action.id,
+          field: action.field || '',
+          label: action.label,
+          message: action.message,
+          recommended: Boolean(action.recommended)
+        }))
+    : []
+  const metrics = budgetEstimate
+    ? [
+        { label: '极限穷游', value: formatAgentMoney(budgetEstimate.survival?.total, budgetEstimate.currency) },
+        { label: '正常舒适', value: formatAgentMoney(budgetEstimate.comfortable?.total, budgetEstimate.currency) }
+      ]
+    : budgetBlocked
     ? [
         { label: '当前预算', value: formatAgentMoney(budgetFeasibility.budget_limit, budgetFeasibility.currency) },
         { label: '最低估算', value: formatAgentMoney(budgetFeasibility.estimated_minimum, budgetFeasibility.currency) },
@@ -1452,11 +1510,14 @@ function normalizeAgentResponse(data) {
     plan: currentPlan,
     planPreview: buildPlanPreview(currentPlan),
     weatherSummary: state.tool_results?.weather?.data?.summary || '',
-    selectedOptions: state.selected_options || {}
+    selectedOptions: state.selected_options || {},
+    choicePrompt: clarification.choice_prompt || '选一个更接近你的答案',
+    actions
   }
 }
 
 function agentResultKicker(data, state, needsInput) {
+  if (state.budget_estimate) return '两档预算已估好'
   if (state.budget_feasibility?.feasible === false) return '预算需要调整'
   if (state.validation_exhausted) return '方案暂未保存'
   if (needsInput) return state.clarification_reply?.kicker || '再了解你一点'
@@ -1468,6 +1529,7 @@ function agentResultKicker(data, state, needsInput) {
 }
 
 function agentResultTitle(intent, destination, dayCount, state, needsInput) {
+  if (state.budget_estimate) return `${destination}预算参考`
   if (state.budget_feasibility?.feasible === false) return `${destination}方案先调一下预算`
   if (state.validation_exhausted) return `${destination}行程需要调整`
   if (needsInput) return state.clarification_reply?.title || `${destination}已经记下啦`

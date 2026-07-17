@@ -1092,6 +1092,91 @@ a {
   overflow-wrap: anywhere;
 }
 
+.agent-choice-group {
+  min-width: 0;
+  margin: 13px 0 0;
+  padding: 11px 0 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.agent-choice-group legend {
+  width: 100%;
+  padding: 0;
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.agent-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.agent-choice-grid button {
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 9px;
+  border: 1px solid oklch(0.86 0.045 164);
+  border-radius: 10px;
+  color: var(--primary-dark);
+  background: var(--surface);
+  text-align: left;
+  transition: border-color 180ms ease-out, background-color 180ms ease-out, transform 180ms ease-out;
+}
+
+.agent-choice-grid button > span {
+  min-width: 0;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.agent-choice-grid button small {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.agent-choice-grid button.recommended {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.agent-choice-grid button.selected {
+  border-color: var(--primary-dark);
+  color: oklch(0.985 0.005 150);
+  background: var(--primary-dark);
+}
+
+.agent-choice-grid button.selected small {
+  color: oklch(0.94 0.025 155);
+}
+
+.agent-choice-group:disabled .agent-choice-grid button:not(.selected) {
+  cursor: default;
+  opacity: 0.48;
+}
+
+@media (hover: hover) {
+  .agent-choice-group:not(:disabled) .agent-choice-grid button:hover {
+    border-color: var(--primary-dark);
+    background: var(--primary-soft);
+    transform: translateY(-1px);
+  }
+}
+
 .agent-tools {
   display: flex;
   flex-wrap: wrap;
@@ -1207,29 +1292,6 @@ a {
   border-top: 1px solid var(--border);
   background: var(--surface);
   box-shadow: 0 -10px 26px rgba(26, 59, 47, 0.06);
-}
-
-.chat-shortcuts {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 8px;
-  scrollbar-width: none;
-}
-
-.chat-shortcuts::-webkit-scrollbar {
-  display: none;
-}
-
-.chat-shortcuts button {
-  min-height: 29px;
-  flex: 0 0 auto;
-  padding: 0 9px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--ink-soft);
-  background: var(--canvas);
-  font-size: 9px;
 }
 
 .chat-composer form {

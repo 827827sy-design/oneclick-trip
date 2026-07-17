@@ -8,7 +8,7 @@ from typing import Protocol
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from app.domain.models import BudgetScope, Intent, IntentContext, IntentDecision, TravelEntities
+from app.domain.models import BudgetMode, BudgetScope, Intent, IntentContext, IntentDecision, TravelEntities
 
 
 class IntentAgent(Protocol):
@@ -65,7 +65,10 @@ class LangChainIntentAgent:
                     "‘把第二天…’、‘换掉上次方案…’且存在当前方案时属于 modify_plan。"
                     "‘确认提交/确认预订’且存在待确认草稿时属于 booking_confirm。"
                     "‘上次方案、第二天、确认提交’等指代必须结合 checkpoint 中的当前对象理解。"
+                    f"今天的日期是 {date.today().isoformat()}，今天/明天/后天必须以这个日期为基准解析。"
                     "预算区分 total/per_person，日期分别输出 start_date/end_date/days。"
+                    "用户要求系统估算预算、表示不知道预算时，不要虚构 budget 数值；budget_mode 输出 estimate。"
+                    "用户强调尽可能省、最低预算或穷游时，budget_mode 输出 minimize。"
                 )
             ),
             HumanMessage(content=f"会话上下文：{context_json}\n本轮用户输入：{query}"),
@@ -80,9 +83,12 @@ class RuleBasedIntentAgent:
         "新疆", "乌鲁木齐", "喀什", "伊犁", "阿勒泰", "西藏", "拉萨", "云南", "昆明", "丽江", "香格里拉",
         "四川", "贵州", "贵阳", "海南", "三亚", "海口", "青海", "西宁", "甘肃", "兰州", "敦煌", "内蒙古",
         "呼和浩特", "广西", "桂林", "福建", "厦门", "泉州", "长沙", "武汉", "哈尔滨", "长春", "沈阳",
-        "济南", "青岛", "郑州", "洛阳", "合肥", "南昌", "福州",
+        "济南", "青岛", "威海", "郑州", "洛阳", "合肥", "南昌", "福州",
     )
-    PREFERENCE_TAGS = ("自然景观", "历史文化", "美食", "徒步", "摄影", "亲子", "购物", "夜生活", "高铁", "飞机")
+    PREFERENCE_TAGS = (
+        "自然景观", "历史文化", "美食", "海鲜", "徒步", "摄影", "亲子", "购物",
+        "夜生活", "高铁", "飞机",
+    )
     CHINESE_NUMBERS = {
         "一": 1,
         "二": 2,
@@ -141,6 +147,10 @@ class RuleBasedIntentAgent:
             return Intent.MODIFY_PLAN
         if "行程" in text:
             return Intent.TRIP_PLAN
+        if re.search(r".+?(?:去|到|前往).+", text) and any(
+            marker in text for marker in ("天", "预算", "出发", "旅游", "旅行")
+        ):
+            return Intent.TRIP_PLAN
         if any(word in text for word in ("天气", "下雨", "温度", "气温")):
             return Intent.WEATHER_QUERY
         if any(word in text for word in ("酒店", "住宿", "住哪里")):
@@ -158,7 +168,7 @@ class RuleBasedIntentAgent:
         cities = sorted((city for city in self.DESTINATION_NAMES if city in text), key=text.index)
         has_explicit_direction = bool(
             len(cities) >= 2
-            and re.search(r"从.+?(?:去|到|前往).+", text)
+            and re.search(r".+?(?:去|到|前往).+", text)
         )
         if len(cities) >= 2 and (intent is Intent.TRANSPORT_QUERY or has_explicit_direction):
             values["origin"], values["destination"] = cities[0], cities[-1]
@@ -185,6 +195,16 @@ class RuleBasedIntentAgent:
             values["budget_scope"] = (
                 BudgetScope.PER_PERSON if budget_match.group(1) in {"人均", "每人"} else BudgetScope.TOTAL
             )
+        if re.search(
+            r"(?:估计|估算|算算|帮我算).{0,8}(?:预算|费用|多少钱)|"
+            r"(?:预算|费用).{0,8}(?:估|算|多少)|需要多少(?:预算|钱)",
+            text,
+        ):
+            values["budget_mode"] = (
+                BudgetMode.MINIMIZE
+                if re.search(r"尽可能少|越少越好|越省越好|最低预算|最省|穷游", text)
+                else BudgetMode.ESTIMATE
+            )
 
         parsed_dates = self._extract_dates(text)
         if parsed_dates:
@@ -196,7 +216,10 @@ class RuleBasedIntentAgent:
         disliked: list[str] = []
         for tag in self.PREFERENCE_TAGS:
             if not re.search(rf"(?:不要|不喜欢|避开|拒绝)[^，。；]{{0,8}}{re.escape(tag)}", text) and (
-                re.search(rf"(?:喜欢|偏爱|想看|爱好)[^，。；]{{0,8}}{re.escape(tag)}", text)
+                re.search(
+                    rf"(?:喜欢|偏爱|想看|想吃|爱好|爱吃|多安排)[^，。；]{{0,8}}{re.escape(tag)}",
+                    text,
+                )
                 or (tag == "美食" and "吃货" in text)
             ):
                 liked.append(tag)
@@ -225,6 +248,10 @@ class RuleBasedIntentAgent:
     @staticmethod
     def _extract_dates(text: str) -> list[date]:
         result: list[date] = []
+        for marker, offset in (("今天", 0), ("明天", 1), ("后天", 2)):
+            if marker in text:
+                result.append(date.fromordinal(date.today().toordinal() + offset))
+                break
         for year, month, day in re.findall(r"(?:(\d{4})年)?(\d{1,2})月(\d{1,2})[日号]", text):
             result.append(date(int(year) if year else date.today().year, int(month), int(day)))
         return result

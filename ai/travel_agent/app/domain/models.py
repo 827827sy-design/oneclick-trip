@@ -41,6 +41,12 @@ class BudgetScope(StrEnum):
     PER_PERSON = "per_person"
 
 
+class BudgetMode(StrEnum):
+    FIXED = "fixed"
+    ESTIMATE = "estimate"
+    MINIMIZE = "minimize"
+
+
 class BookingStatus(StrEnum):
     DRAFT = "draft"
     PENDING_CONFIRMATION = "pending_confirmation"
@@ -91,6 +97,7 @@ class TravelEntities(DomainModel):
     people: int | None = Field(default=None, ge=1, le=100)
     budget: Decimal | None = Field(default=None, ge=0)
     budget_scope: BudgetScope | None = None
+    budget_mode: BudgetMode | None = None
     currency: str = "CNY"
     explicit_preferences: list[str] = Field(default_factory=list)
     explicit_dislikes: list[str] = Field(default_factory=list)
@@ -153,10 +160,20 @@ class IntentDecision(DomainModel):
     advisory_missing_fields: list[str] = Field(default_factory=list)
 
 
+class ClarificationAction(DomainModel):
+    id: str = Field(min_length=1, max_length=48)
+    field: str = Field(min_length=1, max_length=48)
+    label: str = Field(min_length=1, max_length=24)
+    message: str = Field(min_length=1, max_length=120)
+    recommended: bool = False
+
+
 class ClarificationReply(DomainModel):
     kicker: str = Field(min_length=1, max_length=24)
     title: str = Field(min_length=1, max_length=40)
     message: str = Field(min_length=1, max_length=180)
+    choice_prompt: str | None = Field(default=None, max_length=60)
+    actions: list[ClarificationAction] = Field(default_factory=list, max_length=6)
 
 
 class SelectedOptions(DomainModel):
@@ -208,6 +225,25 @@ class BudgetFeasibility(DomainModel):
     daily_basic_cost: Decimal = Field(default=Decimal("0"), ge=0)
     suggested_budget: Decimal = Field(default=Decimal("0"), ge=0)
     currency: str = "CNY"
+
+
+class BudgetTierEstimate(DomainModel):
+    name: str
+    total: Decimal = Field(ge=0)
+    intercity_transport: Decimal = Field(default=Decimal("0"), ge=0)
+    lodging: Decimal = Field(default=Decimal("0"), ge=0)
+    food: Decimal = Field(default=Decimal("0"), ge=0)
+    local_transport: Decimal = Field(default=Decimal("0"), ge=0)
+    tickets: Decimal = Field(default=Decimal("0"), ge=0)
+    assumptions: list[str] = Field(default_factory=list)
+
+
+class BudgetEstimate(DomainModel):
+    survival: BudgetTierEstimate
+    comfortable: BudgetTierEstimate
+    currency: str = "CNY"
+    data_mode: str = "AI_ESTIMATE"
+    disclaimer: str = "基于 AI 通用知识的保守估算，不代表实时票价或房价。"
 
 
 class CandidateVisit(DomainModel):

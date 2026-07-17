@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from app.domain.models import (
     HardValidationResult,
     BookingDraft,
+    BudgetEstimate,
     BudgetFeasibility,
     CandidateSelection,
     ClarificationReply,
@@ -44,6 +45,7 @@ class AgentRunResponse(BaseModel):
     missing_fields: list[str] = Field(default_factory=list)
     clarification_reply: ClarificationReply | None = None
     budget_feasibility: BudgetFeasibility | None = None
+    budget_estimate: BudgetEstimate | None = None
     phase1_research: Phase1Research | None = None
     candidate_selection: CandidateSelection | None = None
     candidate_validation_errors: list[str] = Field(default_factory=list)

@@ -10,6 +10,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.domain.models import (
+    BudgetMode,
     CandidateSelection,
     ItineraryDay,
     ItineraryItem,
@@ -77,6 +78,8 @@ class LangChainPlannerAgent:
                     "只能使用给定候选、路线、开放时间和门票数据，"
                     "不得编造景点 ID、酒店区域 ID、交通选项 ID 或票务选项 ID。"
                     "本次明确需求优先于长期偏好；安排应避免时间冲突和无效折返。"
+                    "当 entities.budget_mode=minimize 时，必须采用极限穷游成本结构：青旅床位、"
+                    "候选中最低价城际交通、市内步行公交或共享助力车、泡面与基础饱腹餐、免费景点优先；"
                     "必须遵守 candidate_selection.selected_pois 中的 visit_date 和 estimated_duration_minutes，"
                     "生成逐日时间安排、交通衔接、住宿区域、费用汇总和必要说明。"
                     "days 中每个项目都要有稳定 item_id、visit_start/end、travel_minutes、visit_minutes；"
@@ -297,6 +300,11 @@ class RuleBasedPlannerAgent:
         assumptions = [
             "景点、住宿区域、路线与费用来自 AI 通用知识估算，不是实时搜索结果。"
         ]
+        if entities.budget_mode is BudgetMode.MINIMIZE:
+            assumptions.append(
+                "本方案按极限穷游核算：青旅床位、最低价城际交通、步行公交或共享助力车、"
+                "泡面与基础饱腹餐、免费景点优先。"
+            )
         if not entities.origin:
             assumptions.append("未提供出发地，城际交通暂不计入有效方案选择。")
         if not entities.start_date:
@@ -353,8 +361,19 @@ class RuleBasedPlannerAgent:
             (item for item in phase1.transport_options if item.option_id == selection.transport_option_id),
             None,
         )
-        hotel_cost = (hotel_area.nightly_price_hint if hotel_area else Decimal("0")) * hotel_nights
+        nightly_price = hotel_area.nightly_price_hint if hotel_area else Decimal("0")
+        if entities.budget_mode is BudgetMode.MINIMIZE and hotel_nights:
+            nightly_price = max(
+                Decimal("45"),
+                min(Decimal("90"), (nightly_price or Decimal("180")) * Decimal("0.35")),
+            ) * people
+        hotel_cost = nightly_price * hotel_nights
         transport_cost = (transport.price if transport else Decimal("0")) * people
         ticket_cost = sum((detail.ticket_price for detail in phase2.poi_details), Decimal("0")) * people
-        food_and_local = Decimal("230") * people * max(entities.days or 1, 1)
+        food_and_local_rate = (
+            Decimal("50")
+            if entities.budget_mode is BudgetMode.MINIMIZE
+            else Decimal("230")
+        )
+        food_and_local = food_and_local_rate * people * max(entities.days or 1, 1)
         return hotel_cost + transport_cost + ticket_cost + food_and_local

@@ -1,3 +1,4 @@
+from datetime import date, timedelta
 from decimal import Decimal
 
 from langchain_core.messages import HumanMessage
@@ -5,6 +6,8 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agents.intent_agent import RuleBasedIntentAgent
 from app.domain.models import (
+    BudgetMode,
+    BudgetScope,
     Intent,
     NextAction,
     TravelEntities,
@@ -78,8 +81,16 @@ def test_travel_desire_routes_to_plan_slot_follow_up() -> None:
     assert result["entities"].destination == "新疆"
     assert result["next_action"] == NextAction.ASK_USER
     assert result["missing_fields"] == ["duration", "people", "budget"]
-    assert result["messages"][-1].content == "再告诉我旅行天数或出发与返程日期、同行人数、大概预算，我就可以接着帮你规划。"
+    assert result["messages"][-1].content == "再告诉我旅行天数或出发与返程日期，我就可以接着帮你规划。"
     assert result["clarification_reply"].title == "新疆已经记下啦"
+    assert result["clarification_reply"].choice_prompt == "旅行准备玩几天？具体日期也可以直接输入"
+    assert [action.label for action in result["clarification_reply"].actions] == [
+        "2 天",
+        "3 天",
+        "4 天",
+        "5 天",
+        "7 天",
+    ]
 
 
 def test_slot_follow_up_keeps_pending_trip_plan_intent() -> None:
@@ -108,6 +119,120 @@ def test_slot_follow_up_keeps_pending_trip_plan_intent() -> None:
     assert second["entities"].days == 3
     assert second["next_action"] == NextAction.COMPLETE
     assert second["plan_saved"] is True
+
+
+def test_choice_actions_advance_people_then_budget_estimate() -> None:
+    graph = build_travel_graph(checkpointer=InMemorySaver())
+    config = {"configurable": {"thread_id": "guided-choice-flow"}}
+    first = graph.invoke(
+        {
+            "conversation_id": "guided-choice-flow",
+            "user_id": "routing-user",
+            "messages": [HumanMessage(content="帮我规划成都三日游")],
+        },
+        config=config,
+    )
+    people_action = first["clarification_reply"].actions[0]
+    second = graph.invoke(
+        {
+            "conversation_id": "guided-choice-flow",
+            "user_id": "routing-user",
+            "messages": [HumanMessage(content=people_action.message)],
+        },
+        config=config,
+    )
+    estimate_action = next(
+        action
+        for action in second["clarification_reply"].actions
+        if action.id == "budget-auto-estimate"
+    )
+    third = graph.invoke(
+        {
+            "conversation_id": "guided-choice-flow",
+            "user_id": "routing-user",
+            "messages": [HumanMessage(content=estimate_action.message)],
+        },
+        config=config,
+    )
+
+    assert first["missing_fields"] == ["people", "budget"]
+    assert people_action.message == "一共1个人"
+    assert second["intent"] is Intent.TRIP_PLAN
+    assert second["missing_fields"] == ["budget"]
+    assert second["clarification_reply"].choice_prompt == "选一个总预算，也可以直接输入其他金额"
+    assert third["intent"] is Intent.TRIP_PLAN
+    assert third["missing_fields"] == ["budget_confirmation"]
+    assert third["budget_estimate"] is not None
+    assert len(third["clarification_reply"].actions) == 2
+
+
+def test_agent_estimates_two_budget_tiers_without_reasking_for_budget() -> None:
+    graph = build_travel_graph(checkpointer=InMemorySaver())
+    config = {"configurable": {"thread_id": "budget-estimate-follow-up"}}
+    first = graph.invoke(
+        {
+            "conversation_id": "budget-estimate-follow-up",
+            "user_id": "routing-user",
+            "messages": [
+                HumanMessage(
+                    content=(
+                        "我想从成都去威海，一个人，今天出发，三天两夜，"
+                        "你帮我估计一下需要多少预算，尽可能少"
+                    )
+                )
+            ],
+        },
+        config=config,
+    )
+
+    estimate = first["budget_estimate"]
+    assert first["next_action"] is NextAction.ASK_USER
+    assert first["missing_fields"] == ["budget_confirmation"]
+    assert first["entities"].budget is None
+    assert first["entities"].budget_mode is BudgetMode.MINIMIZE
+    assert first["entities"].start_date == date.today()
+    assert first["entities"].end_date == date.today() + timedelta(days=2)
+    assert estimate.survival.total < estimate.comfortable.total
+    assert "青旅床位或同级最低价住宿" in estimate.survival.assumptions
+    assert "泡面、便利店和基础饱腹餐" in estimate.survival.assumptions
+    assert "正常体验当地餐饮，不以泡面为主" in estimate.comfortable.assumptions
+    assert "极限穷游" in first["messages"][-1].content
+    assert "正常舒适" in first["messages"][-1].content
+    assert [action.field for action in first["clarification_reply"].actions] == [
+        "budget_confirmation",
+        "budget_confirmation",
+    ]
+    assert first["clarification_reply"].actions[0].recommended is True
+    assert "极限穷游" in first["clarification_reply"].actions[0].message
+
+    second = graph.invoke(
+        {
+            "conversation_id": "budget-estimate-follow-up",
+            "user_id": "routing-user",
+            "messages": [HumanMessage(content="那就1800吧，你帮我安排行程")],
+        },
+        config=config,
+    )
+
+    assert second["intent"] is Intent.TRIP_PLAN
+    assert second["entities"].budget == Decimal("1800")
+    assert second["entities"].budget_scope is BudgetScope.TOTAL
+    assert second["entities"].budget_mode is BudgetMode.FIXED
+    assert second["missing_fields"] == []
+    assert second["plan_saved"] is True
+
+
+def test_colloquial_intercity_trip_without_from_is_still_a_plan() -> None:
+    decision = RuleBasedIntentAgent().classify(
+        "广州去厦门，2个人，明天出发，4天，帮我算算费用"
+    )
+
+    assert decision.intent is Intent.TRIP_PLAN
+    assert decision.entities.origin == "广州"
+    assert decision.entities.destination == "厦门"
+    assert decision.entities.days == 4
+    assert decision.entities.people == 2
+    assert decision.entities.budget_mode is BudgetMode.ESTIMATE
 
 
 def test_new_trip_request_does_not_reuse_completed_plan_budget() -> None:

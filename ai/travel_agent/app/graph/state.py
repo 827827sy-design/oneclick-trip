@@ -9,6 +9,7 @@ from typing_extensions import TypedDict
 
 from app.domain.models import (
     BookingDraft,
+    BudgetEstimate,
     BudgetFeasibility,
     CandidateSelection,
     ClarificationReply,
@@ -87,6 +88,7 @@ class TravelState(TypedDict, total=False):
     plan_version: int | None
     phase1_research: Phase1Research | None
     budget_feasibility: BudgetFeasibility | None
+    budget_estimate: BudgetEstimate | None
     candidate_selection: CandidateSelection | None
     candidate_validation_errors: list[str]
     phase2_research: Phase2Research | None
@@ -139,6 +141,7 @@ def build_initial_state(conversation_id: str, user_id: str) -> TravelState:
         "plan_version": None,
         "phase1_research": None,
         "budget_feasibility": None,
+        "budget_estimate": None,
         "candidate_selection": None,
         "candidate_validation_errors": [],
         "phase2_research": None,

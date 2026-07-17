@@ -1,4 +1,11 @@
-from app.domain.models import Intent, NextAction, SelectedOptions, TravelEntities, UserPreferences
+from app.domain.models import (
+    BudgetMode,
+    Intent,
+    NextAction,
+    SelectedOptions,
+    TravelEntities,
+    UserPreferences,
+)
 from app.graph.state import TravelState, TravelStatePatch
 
 
@@ -48,7 +55,10 @@ def required_fields_for_intent(state: TravelState, entities: TravelEntities) -> 
             missing.append("duration")
         if not entities.people:
             missing.append("people")
-        if entities.budget is None:
+        if entities.budget is None and entities.budget_mode not in {
+            BudgetMode.ESTIMATE,
+            BudgetMode.MINIMIZE,
+        }:
             missing.append("budget")
     elif intent is Intent.MODIFY_PLAN:
         if not state.get("current_plan"):

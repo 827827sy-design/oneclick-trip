@@ -108,6 +108,7 @@ def _build_response(snapshot: StateSnapshot) -> AgentRunResponse:
         missing_fields=result.get("missing_fields", []),
         clarification_reply=result.get("clarification_reply"),
         budget_feasibility=result.get("budget_feasibility"),
+        budget_estimate=result.get("budget_estimate"),
         phase1_research=result.get("phase1_research"),
         candidate_selection=result.get("candidate_selection"),
         candidate_validation_errors=result.get("candidate_validation_errors", []),

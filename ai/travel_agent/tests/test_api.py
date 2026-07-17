@@ -57,6 +57,13 @@ def test_run_endpoint_executes_graph_skeleton() -> None:
     assert body["missing_fields"] == ["people", "budget"]
     assert body["message_count"] == 2
     assert "同行人数" in body["reply"]
+    assert body["clarification_reply"]["choice_prompt"] == "这次一共几个人出发？"
+    assert [action["label"] for action in body["clarification_reply"]["actions"]] == [
+        "1 人",
+        "2 人",
+        "3 人",
+        "4 人",
+    ]
 
 
 def test_run_endpoint_returns_phase_three_plan_draft() -> None:

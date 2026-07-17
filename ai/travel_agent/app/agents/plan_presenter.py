@@ -7,6 +7,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.models import (
+    BudgetMode,
     Phase1Research,
     ReviewResult,
     ToolResult,
@@ -102,11 +103,11 @@ class LangChainPlanPresenterAgent:
         tool_results: dict[str, ToolResult],
         phase1: Phase1Research | None = None,
     ) -> str:
-        del entities, preferences
+        del preferences
         lines = [voice.opening.strip()]
         if voice.preference_note.strip():
             lines.append(voice.preference_note.strip())
-        lines.extend(_research_summary(plan, phase1))
+        lines.extend(_research_summary(plan, phase1, entities))
         for day in plan.days:
             lines.extend(_day_summary(day))
         lines.append(
@@ -141,9 +142,9 @@ class RuleBasedPlanPresenterAgent:
         tool_results: dict[str, ToolResult],
         phase1: Phase1Research | None = None,
     ) -> str:
-        del entities, preferences
+        del preferences
         lines = [f"已经为你整理好 {plan.destination} {len(plan.days)} 天行程。"]
-        lines.extend(_research_summary(plan, phase1))
+        lines.extend(_research_summary(plan, phase1, entities))
         for day in plan.days:
             lines.extend(_day_summary(day))
         lines.append(f"预估总费用约 {plan.total_cost} {plan.currency}，体验评分 {review.score}/100。")
@@ -165,7 +166,11 @@ class RuleBasedPlanPresenterAgent:
         return self.present(**kwargs)
 
 
-def _research_summary(plan: TravelPlan, phase1: Phase1Research | None) -> list[str]:
+def _research_summary(
+    plan: TravelPlan,
+    phase1: Phase1Research | None,
+    entities: TravelEntities,
+) -> list[str]:
     if phase1 is None:
         return []
     lines: list[str] = []
@@ -174,9 +179,16 @@ def _research_summary(plan: TravelPlan, phase1: Phase1Research | None) -> list[s
         None,
     )
     if area is not None:
-        lines.append(
-            f"住宿区域：{area.name}。{area.reason} 参考约 {area.nightly_price_hint} 元/晚。"
-        )
+        if entities.budget_mode is BudgetMode.MINIMIZE:
+            lines.append(
+                f"住宿区域：{area.name}。{area.reason} "
+                "本方案按青旅床位或同级最低价住宿核算。"
+            )
+        else:
+            lines.append(
+                f"住宿区域：{area.name}。{area.reason} "
+                f"普通住宿参考约 {area.nightly_price_hint} 元/晚。"
+            )
     transport = next(
         (
             item

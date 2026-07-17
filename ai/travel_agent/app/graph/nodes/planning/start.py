@@ -9,6 +9,7 @@ def start_planning(_: TravelState) -> TravelStatePatch:
         "plan_draft": None,
         "phase1_research": None,
         "budget_feasibility": None,
+        "budget_estimate": None,
         "candidate_selection": None,
         "candidate_validation_errors": [],
         "phase2_research": None,

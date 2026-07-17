@@ -37,6 +37,8 @@ def route_after_phase1(state: TravelState) -> str:
 
 
 def route_after_budget(state: TravelState) -> str:
+    if state.get("budget_estimate") is not None and state.get("entities").budget is None:
+        return "ask_user"
     feasibility = state.get("budget_feasibility")
     if feasibility is None:
         return "fail"
