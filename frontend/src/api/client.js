@@ -1,4 +1,30 @@
 const TOKEN_KEY = 'oneclick_trip_token'
+const AI_CONVERSATION_KEY = 'oneclick_trip_ai_conversation_id'
+let activeAiConversationId = localStorage.getItem(AI_CONVERSATION_KEY) || ''
+
+export function getAiConversationId() {
+  return activeAiConversationId
+}
+
+export function setAiConversationId(conversationId) {
+  activeAiConversationId = conversationId || ''
+  if (activeAiConversationId) {
+    localStorage.setItem(AI_CONVERSATION_KEY, activeAiConversationId)
+  } else {
+    localStorage.removeItem(AI_CONVERSATION_KEY)
+  }
+}
+
+export function resetAiConversationId() {
+  setAiConversationId('')
+}
+
+function ensureAiConversationId() {
+  if (!activeAiConversationId) {
+    setAiConversationId(crypto.randomUUID())
+  }
+  return activeAiConversationId
+}
 
 // token 保存在 localStorage，刷新页面后仍然能保持登录态。
 export function getToken() {
@@ -11,6 +37,7 @@ export function setToken(token) {
   } else {
     localStorage.removeItem(TOKEN_KEY)
   }
+  resetAiConversationId()
 }
 
 export async function apiRequest(path, options = {}) {
@@ -85,10 +112,37 @@ export const api = {
       body: JSON.stringify(payload)
     })
   },
+  aiConversations() {
+    return apiRequest('/api/ai/conversations')
+  },
+  createAiConversation(title = '') {
+    return apiRequest('/api/ai/conversations', {
+      method: 'POST',
+      body: JSON.stringify({ title })
+    })
+  },
+  aiConversation(conversationId) {
+    return apiRequest(`/api/ai/conversations/${conversationId}`)
+  },
+  renameAiConversation(conversationId, title) {
+    return apiRequest(`/api/ai/conversations/${conversationId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ title })
+    })
+  },
+  deleteAiConversation(conversationId) {
+    return apiRequest(`/api/ai/conversations/${conversationId}`, { method: 'DELETE' })
+  },
   aiChat(message) {
     return apiRequest('/api/ai/chat', {
       method: 'POST',
-      body: JSON.stringify({ message })
+      body: JSON.stringify({ conversationId: ensureAiConversationId(), message })
+    })
+  },
+  aiResume(confirmed) {
+    return apiRequest('/api/ai/resume', {
+      method: 'POST',
+      body: JSON.stringify({ conversationId: ensureAiConversationId(), confirmed })
     })
   }
 }

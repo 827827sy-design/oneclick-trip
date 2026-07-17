@@ -112,9 +112,9 @@
               <span>我记得你喜欢</span>
             </div>
             <div class="preference-tags">
-              <button type="button" @click="go('planner')">慢节奏</button>
-              <button type="button" @click="go('planner')">本地美食</button>
-              <button type="button" @click="go('planner')">少排队</button>
+              <button type="button" @click="createNewConversation('我喜欢慢节奏旅行')">慢节奏</button>
+              <button type="button" @click="createNewConversation('我更喜欢体验本地美食')">本地美食</button>
+              <button type="button" @click="createNewConversation('规划时尽量帮我避开排队')">少排队</button>
             </div>
           </div>
 
@@ -123,7 +123,7 @@
               <span class="action-icon green"><el-icon><ChatDotRound /></el-icon></span>
               <span>问 AI</span>
             </button>
-            <button type="button" @click="go('planner')">
+            <button type="button" @click="createNewConversation('帮我规划一次旅行')">
               <span class="action-icon coral"><el-icon><MagicStick /></el-icon></span>
               <span>做行程</span>
             </button>
@@ -182,21 +182,21 @@
         </section>
 
         <section v-show="activePage === 'chat'" class="screen chat-screen">
-          <AppHeader title="AI 旅行助手" subtitle="正在了解你的旅行方式" @back="go('home')">
-            <button class="header-action" type="button" @click="go('planner')">表单规划</button>
+          <AppHeader :title="activeConversationTitle" subtitle="每段对话都会单独保存" @back="go('home')">
+            <button class="header-action" type="button" @click="openConversationHistory">会话记录</button>
           </AppHeader>
 
           <div class="profile-memory">
             <span class="memory-icon"><el-icon><UserFilled /></el-icon></span>
             <div>
               <strong>你的旅行画像</strong>
-              <p>慢节奏 · 吃货 · 预算适中 · 不爱早起</p>
+              <p>{{ profileSummary }}</p>
             </div>
-            <button type="button" aria-label="修改旅行画像" @click="go('planner')"><el-icon><EditPen /></el-icon></button>
+            <button type="button" aria-label="查看会话记录" @click="openConversationHistory"><el-icon><EditPen /></el-icon></button>
           </div>
 
-          <div class="chat-list">
-            <div class="message assistant">
+          <div ref="chatListRef" class="chat-list">
+            <div v-if="!chatTurns.length" class="message assistant">
               <span class="assistant-avatar"><el-icon><Compass /></el-icon></span>
               <div class="message-body">
                 <p>想去哪座城市？也可以直接告诉我出发地、天数和大概预算。</p>
@@ -207,41 +207,71 @@
               </div>
             </div>
 
-            <div v-for="(message, index) in chatMessages" :key="index" class="message user">
-              <div class="message-body"><p>{{ message }}</p></div>
-            </div>
-
-            <div v-if="agentDemoRunning" class="message assistant">
-              <span class="assistant-avatar"><el-icon><Compass /></el-icon></span>
-              <div class="agent-progress">
-                <div class="progress-title">
-                  <span><el-icon class="spin"><Loading /></el-icon> 正在拼出你的旅程</span>
-                  <small>3 / 5</small>
-                </div>
-                <div class="tool-step done"><el-icon><CircleCheck /></el-icon><span>理解偏好与预算</span></div>
-                <div class="tool-step done"><el-icon><CircleCheck /></el-icon><span>检索景点、美食与住宿</span></div>
-                <div class="tool-step active"><el-icon><Loading /></el-icon><span>核对天气、票价与距离</span></div>
-                <div class="tool-step"><span class="step-dot"></span><span>优化每日路线</span></div>
-                <div class="tool-step"><span class="step-dot"></span><span>整理可预订项目</span></div>
+            <template v-for="turn in chatTurns" :key="turn.id">
+              <div class="message user">
+                <div class="message-body"><p>{{ turn.userText }}</p></div>
               </div>
-            </div>
 
-            <div v-if="aiReply" class="message assistant">
-              <span class="assistant-avatar"><el-icon><Compass /></el-icon></span>
-              <div class="message-body result-message">
-                <span class="result-kicker">方案已准备</span>
-                <h3>成都 3 天松弛美食游</h3>
-                <p>{{ aiReply }}</p>
-                <div class="result-stats">
-                  <span><small>预计预算</small><strong>¥3,180</strong></span>
-                  <span><small>日均步行</small><strong>8,600 步</strong></span>
-                  <span><small>需要预订</small><strong>3 项</strong></span>
+              <div v-if="turn.loading" class="message assistant" aria-live="polite">
+                <span class="assistant-avatar"><el-icon><Compass /></el-icon></span>
+                <div class="agent-live-status">
+                  <div>
+                    <el-icon class="spin"><Loading /></el-icon>
+                    <span>Agent 正在处理</span>
+                  </div>
+                  <p>识别意图并调用本次需要的工具</p>
+                  <span class="loading-track"><i></i></span>
                 </div>
-                <button class="secondary-button" type="button" @click="go('trip')">
-                  查看完整行程 <el-icon><ArrowRight /></el-icon>
-                </button>
               </div>
-            </div>
+
+              <div v-else-if="turn.error" class="message assistant">
+                <span class="assistant-avatar"><el-icon><Compass /></el-icon></span>
+                <div class="message-body agent-error" role="alert">
+                  <strong>这次没有处理成功</strong>
+                  <p>{{ turn.error }}</p>
+                  <button type="button" @click="retryAgentTurn(turn)">重新尝试</button>
+                </div>
+              </div>
+
+              <div v-else-if="turn.response" class="message assistant">
+                <span class="assistant-avatar"><el-icon><Compass /></el-icon></span>
+                <article class="message-body result-message">
+                  <span class="result-kicker">{{ turn.response.kicker }}</span>
+                  <h3>{{ turn.response.title }}</h3>
+                  <p class="agent-reply">{{ turn.response.message }}</p>
+
+                  <div v-if="turn.response.metrics.length" class="result-stats">
+                    <span v-for="metric in turn.response.metrics" :key="metric.label">
+                      <small>{{ metric.label }}</small>
+                      <strong>{{ metric.value }}</strong>
+                    </span>
+                  </div>
+
+                  <div v-if="turn.response.tools.length" class="agent-tools" aria-label="本次调用工具">
+                    <span v-for="tool in turn.response.tools" :key="tool"><el-icon><CircleCheck /></el-icon>{{ tool }}</span>
+                  </div>
+
+                  <div v-if="turn.response.planPreview.length" class="agent-plan-preview">
+                    <div v-for="day in turn.response.planPreview" :key="day.dayIndex">
+                      <strong>{{ day.title }}</strong>
+                      <p>{{ day.items }}</p>
+                    </div>
+                  </div>
+
+                  <div v-if="turn.response.interrupted" class="booking-confirmation">
+                    <p>订单草稿正在等待你的确认，确认前不会提交任何预订。</p>
+                    <div>
+                      <button type="button" class="secondary-button quiet" @click="resumeBooking(turn, false)">取消</button>
+                      <button type="button" class="secondary-button" @click="resumeBooking(turn, true)">确认预订</button>
+                    </div>
+                  </div>
+
+                  <button v-else-if="turn.response.plan" class="secondary-button" type="button" @click="openAgentPlan(turn.response)">
+                    查看完整行程 <el-icon><ArrowRight /></el-icon>
+                  </button>
+                </article>
+              </div>
+            </template>
           </div>
 
           <div class="chat-composer">
@@ -250,113 +280,60 @@
               <button type="button" @click="useSuggestion('不要早起')">不要早起</button>
               <button type="button" @click="useSuggestion('多安排本地美食')">多安排美食</button>
             </div>
-            <form @submit.prevent="callAiPlaceholder(aiInput)">
+            <form @submit.prevent="sendAgentMessage(aiInput)">
               <textarea v-model.trim="aiInput" rows="1" placeholder="继续补充你的想法" aria-label="继续补充旅行需求"></textarea>
-              <button type="submit" aria-label="发送"><el-icon><Position /></el-icon></button>
+              <button type="submit" aria-label="发送" :disabled="agentRequestRunning"><el-icon><Position /></el-icon></button>
             </form>
           </div>
         </section>
 
-        <section v-show="activePage === 'planner'" class="screen planner-screen">
-          <AppHeader title="创建一次旅行" subtitle="大约 1 分钟" @back="go('home')" />
+        <section v-show="activePage === 'sessions'" class="screen session-screen">
+          <AppHeader title="会话记录" subtitle="继续任何一段旅行对话" @back="go('home')">
+            <button class="header-action icon-only" type="button" aria-label="新建会话" @click="createNewConversation()">
+              <el-icon><Plus /></el-icon>
+            </button>
+          </AppHeader>
 
-          <div class="planner-intro">
-            <span><el-icon><MagicStick /></el-icon></span>
+          <div class="session-toolbar">
             <div>
-              <h1>先告诉我这些</h1>
-              <p>之后你仍可以在对话里随时修改。</p>
+              <strong>你的旅行对话</strong>
+              <small>{{ conversationList.length }} 段会话</small>
             </div>
+            <button type="button" @click="createNewConversation()"><el-icon><Plus /></el-icon> 新建对话</button>
           </div>
 
-          <form class="planner-form" @submit.prevent="generatePlan">
-            <fieldset class="form-section">
-              <legend>从哪里，到哪里</legend>
-              <div class="route-fields">
-                <label class="route-field">
-                  <span class="route-dot start"></span>
-                  <span>
-                    <small>出发地</small>
-                    <input v-model.trim="planForm.departureCity" aria-label="出发城市" />
+          <div class="session-list" :class="{ loading: conversationLoading }">
+            <div v-if="conversationLoading" class="session-empty">
+              <el-icon class="spin"><Loading /></el-icon>
+              <p>正在读取会话记录</p>
+            </div>
+            <div v-else-if="!conversationList.length" class="session-empty">
+              <span><el-icon><ChatDotRound /></el-icon></span>
+              <h2>还没有旅行对话</h2>
+              <p>新建一个窗口，天气、路线和行程讨论都会保存在里面。</p>
+              <button type="button" @click="createNewConversation()">开始第一段对话</button>
+            </div>
+            <template v-else>
+              <article
+                v-for="conversation in conversationList"
+                :key="conversation.conversationId"
+                class="session-card"
+                :class="{ active: conversation.conversationId === currentConversationId }"
+              >
+                <button class="session-main" type="button" @click="openConversation(conversation.conversationId)">
+                  <span class="session-icon"><el-icon><ChatDotRound /></el-icon></span>
+                  <span class="session-copy">
+                    <strong>{{ conversation.title }}</strong>
+                    <p>{{ conversation.lastMessagePreview || '还没有消息，点开继续聊聊' }}</p>
+                    <small>{{ formatConversationTime(conversation.updateTime) }} · {{ conversation.messageCount }} 条消息</small>
                   </span>
-                </label>
-                <span class="route-line"></span>
-                <label class="route-field">
-                  <span class="route-dot end"></span>
-                  <span>
-                    <small>目的地</small>
-                    <select v-model="planForm.cityId" aria-label="目的地" @change="selectCityById(planForm.cityId)">
-                      <option v-for="city in displayCities" :key="city.id" :value="city.id">{{ city.name }}</option>
-                    </select>
-                  </span>
-                </label>
-              </div>
-            </fieldset>
-
-            <fieldset class="form-section">
-              <legend>旅行规模</legend>
-              <div class="inline-fields">
-                <label>
-                  <span><el-icon><Calendar /></el-icon> 天数</span>
-                  <select v-model.number="planForm.days">
-                    <option v-for="day in [2, 3, 4, 5, 6, 7]" :key="day" :value="day">{{ day }} 天</option>
-                  </select>
-                </label>
-                <label>
-                  <span><el-icon><User /></el-icon> 人数</span>
-                  <select v-model.number="planForm.peopleCount">
-                    <option v-for="people in [1, 2, 3, 4, 5, 6]" :key="people" :value="people">{{ people }} 人</option>
-                  </select>
-                </label>
-              </div>
-            </fieldset>
-
-            <fieldset class="form-section">
-              <legend>预算与节奏</legend>
-              <div class="segment-control">
-                <button
-                  v-for="budget in budgetOptions"
-                  :key="budget.value"
-                  type="button"
-                  :class="{ active: planForm.budgetLevel === budget.value }"
-                  @click="planForm.budgetLevel = budget.value"
-                >
-                  <span>{{ budget.label }}</span>
-                  <small>{{ budget.hint }}</small>
                 </button>
-              </div>
-              <div class="pace-control">
-                <span>每天的节奏</span>
-                <div>
-                  <button type="button" :class="{ active: planForm.pace === 'RELAXED' }" @click="planForm.pace = 'RELAXED'">松弛</button>
-                  <button type="button" :class="{ active: planForm.pace === 'BALANCED' }" @click="planForm.pace = 'BALANCED'">均衡</button>
-                  <button type="button" :class="{ active: planForm.pace === 'FULL' }" @click="planForm.pace = 'FULL'">充实</button>
-                </div>
-              </div>
-            </fieldset>
-
-            <fieldset class="form-section">
-              <legend>这次更想要</legend>
-              <div class="tag-selector">
-                <button
-                  v-for="tag in preferenceTags"
-                  :key="tag.label"
-                  type="button"
-                  :class="{ active: planForm.interests.includes(tag.label) }"
-                  @click="togglePreference(tag.label)"
-                >
-                  <el-icon><component :is="tag.icon" /></el-icon>
-                  <span>{{ tag.label }}</span>
-                  <el-icon v-if="planForm.interests.includes(tag.label)" class="tag-check"><Check /></el-icon>
+                <button class="session-delete" type="button" aria-label="删除会话" @click="deleteConversation(conversation)">
+                  <el-icon><Delete /></el-icon>
                 </button>
-              </div>
-            </fieldset>
-
-            <button class="primary-button generate-button" type="submit" :disabled="generateLoading">
-              <el-icon v-if="generateLoading" class="spin"><Loading /></el-icon>
-              <el-icon v-else><MagicStick /></el-icon>
-              <span>{{ generateLoading ? '正在生成路线' : '生成我的旅行' }}</span>
-            </button>
-          </form>
+              </article>
+            </template>
+          </div>
         </section>
 
         <section v-show="activePage === 'trip'" class="screen trip-screen">
@@ -377,15 +354,15 @@
 
           <div class="trip-overview">
             <div><span><el-icon><Wallet /></el-icon></span><small>预计总花费</small><strong>¥{{ plan?.totalBudget || 3180 }}</strong></div>
-            <div><span><el-icon><Timer /></el-icon></span><small>日均游玩</small><strong>8.5 小时</strong></div>
-            <div><span><el-icon><Tickets /></el-icon></span><small>待预订</small><strong>3 项</strong></div>
+            <div><span><el-icon><Timer /></el-icon></span><small>日均游玩</small><strong>{{ averageDailyHours }}</strong></div>
+            <div><span><el-icon><Tickets /></el-icon></span><small>待预订</small><strong>{{ pendingBookingCount }} 项</strong></div>
           </div>
 
           <div class="agent-note">
             <span><el-icon><MagicStick /></el-icon></span>
             <div>
               <strong>这样安排更适合你</strong>
-              <p>每天 10 点左右出门，景点按区域串联。重口味餐饮与清淡小吃错开，第三天留出返程余量。</p>
+              <p>{{ planReasonText }}</p>
             </div>
             <button type="button" aria-label="让 AI 修改行程" @click="go('chat')"><el-icon><EditPen /></el-icon></button>
           </div>
@@ -401,16 +378,16 @@
               @click="selectedDayNo = day.dayNo"
             >
               <small>DAY {{ day.dayNo }}</small>
-              <strong>{{ day.dayNo === 1 ? '周五' : day.dayNo === 2 ? '周六' : '周日' }}</strong>
+              <strong>{{ dayWeekday(day) }}</strong>
             </button>
           </div>
 
           <div class="day-summary">
             <div>
               <span>{{ activeDay.title }}</span>
-              <h2>{{ dayTheme(activeDay.dayNo) }}</h2>
+              <h2>{{ activeDay.theme || dayTheme(activeDay.dayNo) }}</h2>
             </div>
-            <span class="weather-chip"><el-icon><Sunny /></el-icon> 26°C</span>
+            <span class="weather-chip"><el-icon><Sunny /></el-icon>{{ plan?.weatherSummary || '天气待确认' }}</span>
           </div>
 
           <div class="itinerary">
@@ -433,7 +410,7 @@
                   <span><el-icon><Timer /></el-icon>{{ item.duration || '约 2 小时' }}</span>
                 </div>
                 <button
-                  v-if="isBookable(item.itemType)"
+                  v-if="item.bookable ?? isBookable(item.itemType)"
                   class="booking-trigger"
                   type="button"
                   @click="toggleBooking(item.title)"
@@ -443,7 +420,7 @@
                 </button>
                 <div v-if="bookingItem === item.title" class="booking-panel">
                   <div>
-                    <span class="booking-provider">演示渠道</span>
+                    <span class="booking-provider">预订渠道待接入</span>
                     <strong>{{ bookingOffer(item) }}</strong>
                     <small>可退改 · 下单前再次确认</small>
                   </div>
@@ -455,7 +432,7 @@
 
           <div class="trip-bottom-action">
             <button type="button" @click="go('chat')"><el-icon><ChatDotRound /></el-icon><span>让 AI 修改</span></button>
-            <button type="button" class="book-all" @click="showToast('已生成 3 项预订清单')">查看预订清单</button>
+            <button type="button" class="book-all" @click="showToast(`已生成 ${pendingBookingCount} 项预订清单`)">查看预订清单</button>
           </div>
         </section>
 
@@ -635,8 +612,8 @@
         <button type="button" :class="{ active: activePage === 'home' }" @click="go('home')">
           <el-icon><House /></el-icon><span>首页</span>
         </button>
-        <button type="button" :class="{ active: activePage === 'dest' || activePage === 'food' }" @click="goGuide('dest', selectedCityKey)">
-          <el-icon><Compass /></el-icon><span>发现</span>
+        <button type="button" class="ai-tab" :class="{ active: activePage === 'chat' || activePage === 'sessions' }" @click="go('chat')">
+          <el-icon><MagicStick /></el-icon><span>AI 助手</span>
         </button>
         <button type="button" :class="{ active: activePage === 'trip' }" @click="go('trip')">
           <el-icon><MapLocation /></el-icon><span>行程</span>
@@ -654,7 +631,7 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, onMounted, reactive, ref } from 'vue'
+import { computed, defineComponent, h, nextTick, onMounted, reactive, ref } from 'vue'
 import {
   ArrowDown,
   ArrowRight,
@@ -668,6 +645,7 @@ import {
   CircleCheck,
   CircleCheckFilled,
   Compass,
+  Delete,
   EditPen,
   Food,
   House,
@@ -695,7 +673,7 @@ import {
   Van,
   Wallet
 } from '@element-plus/icons-vue'
-import { api, getToken, setToken } from './api/client'
+import { api, getAiConversationId, getToken, resetAiConversationId, setAiConversationId, setToken } from './api/client'
 
 const USER_KEY = 'oneclick_trip_user'
 
@@ -727,19 +705,23 @@ const hotels = ref([])
 const plan = ref(null)
 const generateLoading = ref(false)
 const aiInput = ref('')
-const aiReply = ref('')
 const toastText = ref('')
 const loginLoading = ref(false)
 const loginError = ref('')
 const profileLoading = ref(false)
 const profileError = ref('')
 const promptText = ref('')
-const chatMessages = ref([])
-const agentDemoRunning = ref(false)
+const chatTurns = ref([])
+const conversationList = ref([])
+const conversationLoading = ref(false)
+const currentConversationId = ref(getAiConversationId())
+const agentRequestRunning = ref(false)
+const latestAgentPreferences = ref(null)
+const chatListRef = ref(null)
 const selectedDayNo = ref(1)
 const bookingItem = ref('')
 let toastTimer = null
-let agentTimer = null
+let chatTurnId = 0
 
 const loginForm = reactive({
   username: 'admin',
@@ -888,8 +870,20 @@ const selectedGuide = computed(() => guideData[selectedCityKey.value] || guideDa
 const selectedCity = computed(() => displayCities.value.find((city) => city.key === selectedCityKey.value) || displayCities.value[0])
 const currentAvatar = computed(() => findAvatar(currentUser.value?.avatarUrl))
 const selectedProfileAvatar = computed(() => findAvatar(profileForm.avatarUrl))
-const showTabbar = computed(() => ['home', 'dest', 'food', 'trip', 'mine'].includes(activePage.value))
+const showTabbar = computed(() => ['home', 'dest', 'food', 'trip', 'sessions', 'mine'].includes(activePage.value))
+const activeConversationTitle = computed(() => {
+  return conversationList.value.find((item) => item.conversationId === currentConversationId.value)?.title || 'AI 旅行助手'
+})
 const budgetLabel = computed(() => budgetOptions.find((option) => option.value === planForm.budgetLevel)?.label || '预算适中')
+const profileSummary = computed(() => {
+  const preferences = latestAgentPreferences.value
+  if (!preferences) return '还没有形成长期偏好，聊几句后我会逐步记住'
+
+  const labels = [...(preferences.liked_tags || [])]
+  if (preferences.pace) labels.push(preferences.pace === 'relaxed' ? '慢节奏' : preferences.pace)
+  if (preferences.typical_budget_scope === 'per_person') labels.push('习惯看人均预算')
+  return labels.length ? labels.slice(0, 4).join(' · ') : '偏好仍在了解中，本次明确需求会优先'
+})
 const guideHeroBackground = computed(() => {
   return "linear-gradient(180deg, rgba(20, 34, 29, 0.08), rgba(20, 34, 29, 0.72)), url('" + selectedGuide.value.image + "')"
 })
@@ -967,9 +961,32 @@ const planDays = computed(() => {
 })
 
 const activeDay = computed(() => planDays.value.find((day) => Number(day.dayNo) === Number(selectedDayNo.value)) || planDays.value[0])
+const pendingBookingCount = computed(() => {
+  if (Number.isFinite(plan.value?.bookableCount)) return plan.value.bookableCount
+  return planDays.value.reduce(
+    (total, day) => total + (day.items || []).filter((item) => item.bookable ?? isBookable(item.itemType)).length,
+    0
+  )
+})
+const averageDailyHours = computed(() => {
+  const totalMinutes = planDays.value.reduce(
+    (total, day) => total + (day.items || []).reduce((dayTotal, item) => dayTotal + itemDurationMinutes(item), 0),
+    0
+  )
+  if (!totalMinutes || !planDays.value.length) return '待核对'
+  return `${(totalMinutes / planDays.value.length / 60).toFixed(1)} 小时`
+})
+const planReasonText = computed(() => {
+  return plan.value?.agentReason
+    || plan.value?.summary
+    || '行程已按地点顺序与预算整理，可以继续让 AI 调整。'
+})
 
 onMounted(async () => {
-  if (isAuthenticated.value) await refreshProfile()
+  if (isAuthenticated.value) {
+    await refreshProfile()
+    if (isAuthenticated.value) await loadConversations()
+  }
   await loadInitialData()
 })
 
@@ -1019,10 +1036,18 @@ async function loadCityDetail() {
   }
 }
 
-function go(page) {
+async function go(page) {
   if (page !== 'login' && !isAuthenticated.value) {
     activePage.value = 'login'
     showToast('请先登录')
+    return
+  }
+  if (page === 'chat') {
+    if (currentConversationId.value) {
+      await openConversation(currentConversationId.value)
+    } else {
+      await createNewConversation()
+    }
     return
   }
   activePage.value = page
@@ -1100,6 +1125,7 @@ async function handleLogin() {
     backendOnline.value = true
     activePage.value = 'home'
     showToast('欢迎回来，' + (data.nickname || data.username))
+    await loadConversations()
     await loadInitialData()
   } catch (error) {
     loginError.value = error.message || '登录失败，请检查账号和密码'
@@ -1140,8 +1166,11 @@ function logout() {
   currentUser.value = null
   isAuthenticated.value = false
   plan.value = null
-  aiReply.value = ''
-  chatMessages.value = []
+  chatTurns.value = []
+  conversationList.value = []
+  currentConversationId.value = ''
+  resetAiConversationId()
+  latestAgentPreferences.value = null
   activePage.value = 'login'
   showToast('已退出登录')
 }
@@ -1174,44 +1203,392 @@ async function generatePlan() {
   }
 }
 
-function startFromPrompt() {
+async function startFromPrompt() {
   const message = promptText.value || '帮我规划一次轻松的成都旅行'
-  aiInput.value = message
   promptText.value = ''
-  activePage.value = 'chat'
-  callAiPlaceholder(message)
+  await createNewConversation(message)
 }
 
 function useSuggestion(message) {
   aiInput.value = message
-  callAiPlaceholder(message)
+  sendAgentMessage(message)
 }
 
-async function callAiPlaceholder(message) {
+async function sendAgentMessage(message) {
   const text = (message || '').trim()
-  if (!text || agentDemoRunning.value) return
-  chatMessages.value.push(text)
-  aiInput.value = ''
-  aiReply.value = ''
-  agentDemoRunning.value = true
-  clearTimeout(agentTimer)
-
-  let serverMessage = ''
-  if (backendOnline.value) {
-    try {
-      const data = await api.aiChat(text)
-      serverMessage = data?.message || ''
-    } catch {
-      serverMessage = ''
-    }
+  if (!text || agentRequestRunning.value) return
+  if (!currentConversationId.value) {
+    const created = await api.createAiConversation()
+    setCurrentConversation(created.conversationId)
+    conversationList.value.unshift(created)
   }
 
-  agentTimer = setTimeout(() => {
-    agentDemoRunning.value = false
-    aiReply.value = serverMessage && !serverMessage.includes('暂未接入')
-      ? serverMessage
-      : '我把熊猫基地放在更适合观赏的上午，市区景点按片区串联，并为火锅与都江堰门票预留了预订入口。'
-  }, 1800)
+  const turn = {
+    id: ++chatTurnId,
+    userText: text,
+    loading: true,
+    error: '',
+    response: null
+  }
+  chatTurns.value.push(turn)
+  aiInput.value = ''
+  await scrollChatToBottom()
+  await runAgentTurn(turn)
+}
+
+async function runAgentTurn(turn) {
+  agentRequestRunning.value = true
+  turn.loading = true
+  turn.error = ''
+  try {
+    const data = await api.aiChat(turn.userText)
+    turn.response = normalizeAgentResponse(data)
+    latestAgentPreferences.value = data?.agentState?.user_preferences || latestAgentPreferences.value
+    backendOnline.value = true
+    await loadConversations(false)
+  } catch (error) {
+    turn.error = error.message || 'Agent 服务暂时不可用，请稍后再试'
+  } finally {
+    turn.loading = false
+    agentRequestRunning.value = false
+    await scrollChatToBottom()
+  }
+}
+
+async function retryAgentTurn(turn) {
+  if (agentRequestRunning.value) return
+  turn.response = null
+  await runAgentTurn(turn)
+}
+
+async function resumeBooking(turn, confirmed) {
+  if (agentRequestRunning.value) return
+  agentRequestRunning.value = true
+  turn.loading = true
+  turn.error = ''
+  try {
+    const data = await api.aiResume(confirmed)
+    turn.response = normalizeAgentResponse(data)
+    latestAgentPreferences.value = data?.agentState?.user_preferences || latestAgentPreferences.value
+    await loadConversations(false)
+  } catch (error) {
+    turn.error = error.message || '预订确认失败，请稍后重试'
+    turn.response = null
+  } finally {
+    turn.loading = false
+    agentRequestRunning.value = false
+    await scrollChatToBottom()
+  }
+}
+
+async function loadConversations(showLoading = true) {
+  if (!isAuthenticated.value) return
+  if (showLoading) conversationLoading.value = true
+  try {
+    conversationList.value = await api.aiConversations()
+    if (currentConversationId.value && !conversationList.value.some((item) => item.conversationId === currentConversationId.value)) {
+      setCurrentConversation('')
+      chatTurns.value = []
+    }
+  } catch (error) {
+    showToast(error.message || '会话记录加载失败')
+  } finally {
+    if (showLoading) conversationLoading.value = false
+  }
+}
+
+async function openConversationHistory() {
+  activePage.value = 'sessions'
+  await loadConversations()
+}
+
+async function createNewConversation(initialMessage = '') {
+  if (agentRequestRunning.value) return
+  try {
+    const conversation = await api.createAiConversation()
+    setCurrentConversation(conversation.conversationId)
+    chatTurns.value = []
+    conversationList.value = [conversation, ...conversationList.value.filter((item) => item.conversationId !== conversation.conversationId)]
+    activePage.value = 'chat'
+    if (initialMessage) await sendAgentMessage(initialMessage)
+  } catch (error) {
+    showToast(error.message || '新建会话失败')
+  }
+}
+
+async function openConversation(conversationId) {
+  if (!conversationId || agentRequestRunning.value) return
+  conversationLoading.value = true
+  try {
+    const detail = await api.aiConversation(conversationId)
+    setCurrentConversation(conversationId)
+    chatTurns.value = messagesToChatTurns(detail.messages || [])
+    activePage.value = 'chat'
+    await scrollChatToBottom()
+  } catch (error) {
+    showToast(error.message || '会话打开失败')
+  } finally {
+    conversationLoading.value = false
+  }
+}
+
+async function deleteConversation(conversation) {
+  const confirmed = window.confirm(`确定删除“${conversation.title}”吗？删除后将不再出现在会话记录中。`)
+  if (!confirmed) return
+  try {
+    await api.deleteAiConversation(conversation.conversationId)
+    conversationList.value = conversationList.value.filter((item) => item.conversationId !== conversation.conversationId)
+    if (currentConversationId.value === conversation.conversationId) {
+      setCurrentConversation('')
+      chatTurns.value = []
+    }
+    showToast('会话已删除')
+  } catch (error) {
+    showToast(error.message || '删除会话失败')
+  }
+}
+
+function setCurrentConversation(conversationId) {
+  currentConversationId.value = conversationId || ''
+  setAiConversationId(currentConversationId.value)
+}
+
+function messagesToChatTurns(messages) {
+  const turns = []
+  let pendingTurn = null
+  for (const message of messages) {
+    if (message.role === 'USER') {
+      pendingTurn = {
+        id: ++chatTurnId,
+        userText: message.content,
+        loading: false,
+        error: '',
+        response: null
+      }
+      turns.push(pendingTurn)
+      continue
+    }
+    if (message.role !== 'ASSISTANT') continue
+    if (!pendingTurn || pendingTurn.response || pendingTurn.error) {
+      pendingTurn = {
+        id: ++chatTurnId,
+        userText: '继续上一次会话',
+        loading: false,
+        error: '',
+        response: null
+      }
+      turns.push(pendingTurn)
+    }
+    if (message.status === 'FAILED') {
+      pendingTurn.error = message.content
+    } else {
+      pendingTurn.response = normalizeAgentResponse({
+        status: message.status,
+        message: message.content,
+        intent: message.intent,
+        interrupted: message.status === 'WAITING_CONFIRMATION',
+        agentState: message.agentState || {}
+      })
+    }
+  }
+  if (pendingTurn && !pendingTurn.response && !pendingTurn.error) {
+    pendingTurn.error = '上次请求没有完成，可以重新尝试。'
+  }
+  return turns
+}
+
+function formatConversationTime(value) {
+  if (!value) return '刚刚'
+  const date = new Date(value)
+  const today = new Date()
+  if (date.toDateString() === today.toDateString()) {
+    return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  }
+  return date.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+}
+
+function normalizeAgentResponse(data) {
+  const state = data?.agentState || {}
+  const currentPlan = state.current_plan || state.plan_draft || null
+  const dayCount = currentPlan?.days?.length || 0
+  const destination = currentPlan?.destination
+    || state.entities?.destination
+    || state.tool_results?.weather?.data?.destination
+    || '本次旅行'
+  const selectedTools = Array.isArray(state.selected_tools) ? state.selected_tools : []
+  const bookableCount = currentPlan ? countBookableItems(currentPlan, state.selected_options) : 0
+  const budgetFeasibility = state.budget_feasibility || null
+  const budgetBlocked = budgetFeasibility?.feasible === false
+  const needsInput = state.next_action === 'ask_user' || Boolean(state.missing_fields?.length)
+  const metrics = budgetBlocked
+    ? [
+        { label: '当前预算', value: formatAgentMoney(budgetFeasibility.budget_limit, budgetFeasibility.currency) },
+        { label: '最低估算', value: formatAgentMoney(budgetFeasibility.estimated_minimum, budgetFeasibility.currency) },
+        { label: '建议预算', value: formatAgentMoney(budgetFeasibility.suggested_budget, budgetFeasibility.currency) }
+      ]
+    : needsInput
+    ? []
+    : currentPlan
+    ? [
+        { label: '预计预算', value: formatAgentMoney(currentPlan.total_cost, currentPlan.currency) },
+        { label: '行程天数', value: `${dayCount} 天` },
+        { label: '待预订', value: `${bookableCount} 项` }
+      ]
+    : [
+        { label: '调用工具', value: `${selectedTools.length} 项` },
+        { label: '数据模式', value: agentDataMode(state) },
+        { label: '会话消息', value: `${state.message_count || 0} 条` }
+      ]
+
+  return {
+    status: data?.status || 'COMPLETED',
+    intent: data?.intent || state.intent || 'unknown',
+    interrupted: Boolean(data?.interrupted || state.interrupted),
+    message: data?.message || 'Agent 已完成本次处理。',
+    kicker: agentResultKicker(data, state, needsInput),
+    title: agentResultTitle(data?.intent || state.intent, destination, dayCount, state, needsInput),
+    metrics,
+    tools: needsInput ? [] : selectedTools.map((tool) => agentToolLabel(tool)),
+    plan: currentPlan,
+    planPreview: buildPlanPreview(currentPlan),
+    weatherSummary: state.tool_results?.weather?.data?.summary || '',
+    selectedOptions: state.selected_options || {}
+  }
+}
+
+function agentResultKicker(data, state, needsInput) {
+  if (state.budget_feasibility?.feasible === false) return '预算需要调整'
+  if (state.validation_exhausted) return '方案暂未保存'
+  if (needsInput) return state.clarification_reply?.kicker || '再了解你一点'
+  if (data?.interrupted || state.interrupted) return '等待你的确认'
+  if (state.booking_completed) return '预订请求已提交'
+  if (data?.intent === 'modify_plan') return '新版本已通过校验'
+  if (state.plan_saved) return '方案已通过校验'
+  return 'Agent 已完成'
+}
+
+function agentResultTitle(intent, destination, dayCount, state, needsInput) {
+  if (state.budget_feasibility?.feasible === false) return `${destination}方案先调一下预算`
+  if (state.validation_exhausted) return `${destination}行程需要调整`
+  if (needsInput) return state.clarification_reply?.title || `${destination}已经记下啦`
+  if (state.booking_completed) return '预订状态已更新'
+  if (intent === 'booking') return '预订草稿已生成'
+  if (intent === 'weather_query') return `${destination}天气查询`
+  if (intent === 'hotel_query') return `${destination}住宿建议`
+  if (intent === 'transport_query') return '城际交通方案'
+  if (intent === 'modify_plan') return `${destination}行程已更新`
+  if (intent === 'trip_plan' && dayCount > 0) return `${destination} ${dayCount} 天智能行程`
+  if (intent === 'trip_plan') return `${destination}行程规划结果`
+  return `${destination}旅行建议`
+}
+
+function agentToolLabel(tool) {
+  const labels = {
+    weather: '天气',
+    hotel_search: '住宿区域',
+    train_search: '火车',
+    flight_search: '航班',
+    poi_search: '景点候选',
+    route_matrix: '路线矩阵',
+    opening_hours: '开放时间',
+    ticket: '门票'
+  }
+  return labels[tool] || tool
+}
+
+function agentDataMode(state) {
+  const researchMode = state.phase2_research?.data_mode || state.phase1_research?.data_mode
+  if (researchMode === 'AI_KNOWLEDGE') return 'AI 多阶段'
+  if (researchMode === 'OFFLINE_FALLBACK') return '离线多阶段'
+  const result = Object.values(state.tool_results || {}).find((item) => item?.data?.data_mode)
+  if (!result) return 'AI 生成'
+  return result?.data?.data_mode === 'MOCK' ? '接口演示' : (result?.data?.data_mode || 'AI 生成')
+}
+
+function countBookableItems(agentPlan, selectedOptions = {}) {
+  if (!agentPlan) return 0
+  return ['hotel_option_ids', 'transport_option_ids', 'ticket_option_ids']
+    .reduce((total, key) => total + (Array.isArray(selectedOptions?.[key]) ? selectedOptions[key].length : 0), 0)
+}
+
+function formatAgentMoney(value, currency = 'CNY') {
+  const amount = Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 0 })
+  return currency === 'CNY' ? `¥${amount}` : `${amount} ${currency}`
+}
+
+function buildPlanPreview(agentPlan) {
+  if (!agentPlan?.days?.length) return []
+  return agentPlan.days.slice(0, 2).map((day) => ({
+    dayIndex: day.day_index,
+    title: day.title || `第 ${day.day_index} 天`,
+    items: (day.items || []).map((item) => item.name).join(' · ') || '自由活动'
+  }))
+}
+
+function openAgentPlan(response) {
+  if (!response.plan) return
+  plan.value = convertAgentPlan(response.plan, response)
+  selectedDayNo.value = 1
+  go('trip')
+}
+
+function convertAgentPlan(agentPlan, response) {
+  const days = agentPlan.days || []
+  return {
+    title: `${agentPlan.destination} ${days.length} 天智能行程`,
+    days: days.length,
+    peopleCount: planForm.peopleCount,
+    totalBudget: Number(agentPlan.total_cost || 0),
+    summary: agentPlan.assumptions?.join('；') || '',
+    agentReason: [...new Set(days.map((day) => day.summary).filter(Boolean))].join('；'),
+    weatherSummary: compactWeather(response.weatherSummary),
+    bookableCount: countBookableItems(agentPlan, response.selectedOptions),
+    dayPlans: days.map((day) => ({
+      dayNo: day.day_index,
+      date: day.date,
+      title: day.date ? `Day ${day.day_index} · ${day.date}` : (day.title || `Day ${day.day_index}`),
+      theme: (day.title || '').replace(/^第\s*\d+\s*天[：:]?\s*/, ''),
+      summary: day.summary,
+      items: (day.items || []).map((item) => ({
+        itemType: item.item_type || 'SPOT',
+        title: item.name,
+        description: [item.description, item.travel_minutes ? `前往约 ${item.travel_minutes} 分钟` : ''].filter(Boolean).join('；'),
+        startTime: (item.start_time || item.start_at || '').slice(0, 5),
+        address: item.location_id || '位置待确认',
+        duration: item.visit_minutes ? `约 ${item.visit_minutes} 分钟` : '时间待确认',
+        durationMinutes: Number(item.visit_minutes || 0),
+        travelMinutes: Number(item.travel_minutes || 0),
+        bookable: Boolean(item.ticket_option_id),
+        cost: Number(item.estimated_cost || 0)
+      }))
+    }))
+  }
+}
+
+function compactWeather(summary) {
+  const match = String(summary || '').match(/(\d+)\s*-\s*(\d+)\s*摄氏度/)
+  return match ? `${match[1]}-${match[2]}°C` : (summary ? '天气已核对' : '天气待确认')
+}
+
+function itemDurationMinutes(item) {
+  const structured = Number(item.durationMinutes || 0) + Number(item.travelMinutes || 0)
+  if (structured) return structured
+  const text = String(item.duration || '')
+  const hourMatch = text.match(/([\d.]+)\s*小时/)
+  const minuteMatch = text.match(/([\d.]+)\s*分钟/)
+  return Number(hourMatch?.[1] || 0) * 60 + Number(minuteMatch?.[1] || 0)
+}
+
+function dayWeekday(day) {
+  if (!day.date) return `第 ${day.dayNo} 天`
+  return new Date(`${day.date}T00:00:00`).toLocaleDateString('zh-CN', { weekday: 'short' })
+}
+
+async function scrollChatToBottom() {
+  await nextTick()
+  if (chatListRef.value) {
+    chatListRef.value.scrollTo({ top: chatListRef.value.scrollHeight, behavior: 'smooth' })
+  }
 }
 
 function destinationStyle(city, index) {

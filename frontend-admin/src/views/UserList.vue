@@ -43,9 +43,10 @@
               <span style="font-size:13px;color:var(--admin-text-muted)">{{ row.createTime }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="150" fixed="right">
+          <el-table-column label="操作" width="200" fixed="right">
             <template #default="{ row }">
               <el-button size="small" type="primary" link @click="viewDetail(row)">详情</el-button>
+              <el-button size="small" type="primary" link @click="viewConversations(row)">会话</el-button>
               <el-popconfirm
                 :title="row.status === 1 ? '确定要禁用该用户吗？' : '确定要启用该用户吗？'"
                 @confirm="toggleStatus(row)"
@@ -100,6 +101,9 @@
 import { onMounted, ref } from 'vue'
 import { fetchUsers, fetchUser, updateUserStatus } from '../api/admin.js'
 import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
 
 const loading = ref(false)
 const users = ref([])
@@ -157,5 +161,9 @@ async function toggleStatus(row) {
   } catch {
     ElMessage.error('操作失败')
   }
+}
+
+function viewConversations(row) {
+  router.push({ path: '/conversations', query: { userId: row.id, user: row.nickname || row.username } })
 }
 </script>

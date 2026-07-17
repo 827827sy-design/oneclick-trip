@@ -46,6 +46,20 @@ export function updateUserStatus(id, status) {
   })
 }
 
+// ===== AI 会话管理 =====
+export function fetchConversations(params = {}) {
+  const query = new URLSearchParams(params).toString()
+  return request(`${BASE}/conversations?${query}`)
+}
+
+export function fetchConversation(id) {
+  return request(`${BASE}/conversations/${id}`)
+}
+
+export function deleteConversation(id) {
+  return request(`${BASE}/conversations/${id}`, { method: 'DELETE' })
+}
+
 // ===== 城市管理 =====
 export function fetchCities(params = {}) {
   const query = new URLSearchParams(params).toString()

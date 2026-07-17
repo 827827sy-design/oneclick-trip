@@ -35,6 +35,12 @@ const routes = [
         meta: { title: '用户管理', icon: 'User' }
       },
       {
+        path: 'conversations',
+        name: 'ConversationList',
+        component: () => import('../views/ConversationList.vue'),
+        meta: { title: '会话管理', icon: 'ChatLineRound' }
+      },
+      {
         path: 'cities',
         name: 'CityList',
         component: () => import('../views/CityList.vue'),

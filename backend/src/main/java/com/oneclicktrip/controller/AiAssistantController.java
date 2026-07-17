@@ -3,8 +3,11 @@ package com.oneclicktrip.controller;
 import com.oneclicktrip.common.ApiResponse;
 import com.oneclicktrip.dto.AiChatRequest;
 import com.oneclicktrip.dto.AiChatResponse;
+import com.oneclicktrip.dto.AiResumeRequest;
+import com.oneclicktrip.security.JwtUser;
 import com.oneclicktrip.service.AiAssistantService;
 import jakarta.validation.Valid;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -20,8 +23,20 @@ public class AiAssistantController {
     }
 
     @PostMapping("/chat")
-    public ApiResponse<AiChatResponse> chat(@Valid @RequestBody AiChatRequest request) {
-        // AI 功能目前只是占位接口，先让前端和 Java 后端的链路完整跑通。
-        return ApiResponse.ok(aiAssistantService.chat(request));
+    public ApiResponse<AiChatResponse> chat(
+            @Valid @RequestBody AiChatRequest request,
+            @AuthenticationPrincipal JwtUser currentUser
+    ) {
+        Long authenticatedUserId = currentUser == null ? null : currentUser.userId();
+        return ApiResponse.ok(aiAssistantService.chat(request, authenticatedUserId));
+    }
+
+    @PostMapping("/resume")
+    public ApiResponse<AiChatResponse> resume(
+            @Valid @RequestBody AiResumeRequest request,
+            @AuthenticationPrincipal JwtUser currentUser
+    ) {
+        Long authenticatedUserId = currentUser == null ? null : currentUser.userId();
+        return ApiResponse.ok(aiAssistantService.resume(request, authenticatedUserId));
     }
 }

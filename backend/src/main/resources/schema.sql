@@ -193,3 +193,32 @@ CREATE TABLE IF NOT EXISTS ai_call_log (
   create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_ai_log_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- AI 会话主表：conversation_id 同时作为 LangGraph 的 thread_id 使用。
+CREATE TABLE IF NOT EXISTS ai_conversation (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  conversation_id VARCHAR(128) NOT NULL,
+  user_id BIGINT NOT NULL,
+  title VARCHAR(128) NOT NULL DEFAULT '新对话',
+  status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
+  last_message_preview VARCHAR(255),
+  message_count INT NOT NULL DEFAULT 0,
+  deleted TINYINT NOT NULL DEFAULT 0,
+  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_ai_conversation_id (conversation_id),
+  INDEX idx_ai_conversation_user_update (user_id, update_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- AI 消息表：保存文本和 Agent 结构化状态，供会话恢复与管理端审计。
+CREATE TABLE IF NOT EXISTS ai_message (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  ai_conversation_id BIGINT NOT NULL,
+  role VARCHAR(16) NOT NULL,
+  content TEXT NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'COMPLETED',
+  intent VARCHAR(64),
+  agent_state_json LONGTEXT,
+  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_ai_message_conversation (ai_conversation_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

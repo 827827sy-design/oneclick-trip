@@ -5,6 +5,9 @@ frontend/dev-server.err
 frontend-admin/node_modules/
 frontend-admin/dist/
 backend/target/
+ai/.venv/
+ai/**/__pycache__/
+ai/*.log
 .m2-repository/
 .npm-cache/
 tools/*.log
@@ -12,10 +15,12 @@ tools/*.log
 *.iml
 *.log
 logs/
+.runtime-logs/
 
 # Local-only credentials and machine-specific config
 .env
 .env.*
+!.env.example
 backend/maven-settings.xml
 backend/src/main/resources/application.yml
 backend/src/main/resources/application.yaml

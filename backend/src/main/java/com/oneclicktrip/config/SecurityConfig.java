@@ -37,7 +37,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**", "/api/health", "/error").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/cities/**", "/api/trip-templates/**").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/trip-plans/generate", "/api/ai/chat").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/trip-plans/generate", "/api/ai/chat", "/api/ai/resume").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/trip-plans/**").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()

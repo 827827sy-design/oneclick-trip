@@ -1,6 +1,6 @@
-# 一键游非 AI MVP
+# 一键游 MVP
 
-这个目录先实现项目的 Java 业务后端、MySQL 数据库和 Vue 3 前端部分。AI 助手暂时只保留占位接口，后续可替换为 FastAPI + LangGraph 服务。
+项目包含 Java 业务后端、MySQL、Vue 3 前端和 FastAPI AI 工具服务。FastAPI 天气接口已接入 Open-Meteo；当前 Dify/LangGraph 架构演示暂时使用完整 Mock 数据，不依赖公网服务。
 
 如果第一次看不懂项目结构，先读：
 
@@ -16,7 +16,8 @@ docs/project-structure.md
 - MyBatis-Plus 数据访问
 - 城市、景点、美食、酒店、行程模板查询接口
 - 规则版一键生成行程接口
-- AI 助手占位接口
+- AI 助手 Java 占位接口
+- FastAPI 真实天气与城市解析接口
 - Vue 3 前端界面，沿用之前的小程序原型视觉
 - 个人资料页：修改昵称、选择头像、退出登录
 
@@ -92,6 +93,20 @@ npm run dev
 http://127.0.0.1:5173
 ```
 
+### 4. 启动 FastAPI AI 工具服务
+
+在 `ai` 目录运行：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+.\.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
+```
+
+接口文档：`http://127.0.0.1:8001/docs`
+
+真实天气示例：`GET /tools/weather?city=成都&forecast_days=4`
+
 ## 核心接口
 
 ```text
@@ -108,6 +123,7 @@ PUT  /api/users/me
 POST /api/trip-plans/generate
 GET  /api/trip-plans/{id}
 POST /api/ai/chat
+GET  http://127.0.0.1:8001/tools/weather
 ```
 
 `POST /api/ai/chat` 现在会返回“AI 助手暂未接入”，用于给前端预留入口。
