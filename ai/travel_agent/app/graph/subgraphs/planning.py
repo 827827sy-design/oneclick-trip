@@ -93,7 +93,10 @@ def build_planning_subgraph(
     graph.add_node("budget_clarification", make_ask_user_node(clarification_agent))
     graph.add_node("candidate_selection", make_candidate_selection_node(candidate_selector))
     graph.add_node("candidate_validation", candidate_validation)
-    graph.add_node("phase2_research", make_phase2_research_node(phase2_research_agent))
+    graph.add_node(
+        "phase2_research",
+        make_phase2_research_node(phase2_research_agent, tool_executor),
+    )
     graph.add_node("planner", make_planner_node(planner_agent))
     graph.add_node("hard_validation", make_hard_validation_node(hard_validator))
     graph.add_node("review_plan", make_review_node(reviewer_agent))

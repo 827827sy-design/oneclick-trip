@@ -8,6 +8,12 @@
 docs/project-structure.md
 ```
 
+当前阶段完成度、下一阶段目标和双人开发分工见：
+
+```text
+docs/stage-summary-and-task-allocation.md
+```
+
 ## 已完成的非 AI 闭环
 
 - Spring Boot 3.x 后端工程

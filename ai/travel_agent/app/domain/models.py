@@ -74,6 +74,17 @@ class ToolRecoveryAction(StrEnum):
     ABORT = "abort"
 
 
+class ToolDataMode(StrEnum):
+    """Declares how fresh and authoritative a tool result is."""
+
+    UNKNOWN = "UNKNOWN"
+    REALTIME = "REALTIME"
+    CACHE = "CACHE"
+    MOCK = "MOCK"
+    AI_KNOWLEDGE = "AI_KNOWLEDGE"
+    FALLBACK = "FALLBACK"
+
+
 class ReviewVerdict(StrEnum):
     PASS = "pass"
     REVISE = "revise"
@@ -190,6 +201,10 @@ class POICandidate(DomainModel):
     tags: list[str] = Field(default_factory=list)
     suggested_duration_minutes: int = Field(ge=30)
     ticket_price: Decimal = Decimal("0")
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    coordinate_source: str | None = None
+    coordinates_verified: bool = False
 
 
 class HotelAreaCandidate(DomainModel):
@@ -393,9 +408,27 @@ class ModificationResult(DomainModel):
 class ToolResult(DomainModel):
     success: bool
     data: dict[str, Any] = Field(default_factory=dict)
+    source: str = "unknown"
+    data_mode: ToolDataMode = ToolDataMode.UNKNOWN
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    fetched_at: DateTime = Field(default_factory=lambda: DateTime.now(UTC))
+    bookable: bool = False
     error_code: str | None = None
     retryable: bool = False
     timestamp: DateTime = Field(default_factory=lambda: DateTime.now(UTC))
+
+    @model_validator(mode="before")
+    @classmethod
+    def promote_legacy_metadata(cls, value: Any) -> Any:
+        """Keep old tool adapters readable while metadata moves to the envelope."""
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        data = normalized.get("data")
+        if isinstance(data, dict):
+            normalized.setdefault("source", data.get("source", "unknown"))
+            normalized.setdefault("data_mode", data.get("data_mode", ToolDataMode.UNKNOWN))
+        return normalized
 
 
 class ToolError(DomainModel):

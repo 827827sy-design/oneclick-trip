@@ -34,3 +34,11 @@ class ToolRegistry:
     @property
     def names(self) -> frozenset[ToolName]:
         return frozenset(self._tools)
+
+    @property
+    def realtime_names(self) -> frozenset[ToolName]:
+        return frozenset(
+            name
+            for name, tool in self._tools.items()
+            if bool(getattr(tool, "is_realtime_provider", False))
+        )

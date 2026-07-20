@@ -16,6 +16,8 @@ from app.memory.checkpoints import (
     PlainRedisCheckpointBackend,
 )
 from app.vectorstore import ChromaTravelKnowledgeBase
+from app.tools.factory import build_live_tool_registry
+from app.tools.mock_tools import build_allowed_demo_registry
 
 
 def create_app(
@@ -67,6 +69,11 @@ def create_app(
 
     checkpointer = backend.create()
     configured_booking_backend = booking_backend or MockJavaBookingBackend()
+    configured_tool_registry = (
+        build_allowed_demo_registry()
+        if isolated_mode
+        else build_live_tool_registry(configured_settings)
+    )
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
@@ -82,6 +89,7 @@ def create_app(
                 application.state.travel_graph = build_travel_graph(
                     checkpointer=checkpointer,
                     booking_backend=configured_booking_backend,
+                    tool_registry=configured_tool_registry,
                     **agent_kwargs,
                 )
         if knowledge_base is not None:
@@ -116,6 +124,7 @@ def create_app(
         booking_backend=configured_booking_backend,
         plan_repository=plan_repository,
         preference_repository=preference_repository,
+        tool_registry=configured_tool_registry,
         **agent_kwargs,
     )
     application.include_router(router)

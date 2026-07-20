@@ -215,12 +215,27 @@
               <div v-if="turn.loading" class="message assistant" aria-live="polite">
                 <span class="assistant-avatar"><el-icon><Compass /></el-icon></span>
                 <div class="agent-live-status">
-                  <div>
-                    <el-icon class="spin"><Loading /></el-icon>
-                    <span>Agent 正在处理</span>
+                  <div class="agent-live-heading">
+                    <span class="agent-spinner" aria-hidden="true"></span>
+                    <div>
+                      <strong>{{ turn.progressSteps?.[turn.progressIndex]?.label || '正在理解你的需求' }}</strong>
+                      <small>{{ turn.progressElapsed || 0 }} 秒</small>
+                    </div>
                   </div>
-                  <p>识别意图并调用本次需要的工具</p>
-                  <span class="loading-track"><i></i></span>
+                  <p>{{ turn.progressSteps?.[turn.progressIndex]?.detail || '正在准备本次需要的处理步骤' }}</p>
+                  <ol class="agent-progress-list" aria-label="Agent 处理进度">
+                    <li
+                      v-for="(step, index) in turn.progressSteps"
+                      :key="step.label"
+                      :class="{ done: index < turn.progressIndex, active: index === turn.progressIndex }"
+                    >
+                      <span>
+                        <el-icon v-if="index < turn.progressIndex"><Check /></el-icon>
+                        <i v-else></i>
+                      </span>
+                      <strong>{{ step.shortLabel }}</strong>
+                    </li>
+                  </ol>
                 </div>
               </div>
 
@@ -238,6 +253,42 @@
                 <article class="message-body result-message">
                   <span class="result-kicker">{{ turn.response.kicker }}</span>
                   <h3>{{ turn.response.title }}</h3>
+
+                  <section
+                    v-if="turn.response.intent === 'weather_query' && turn.response.weather"
+                    class="agent-weather"
+                    aria-label="实时天气"
+                  >
+                    <div class="weather-now">
+                      <span class="weather-symbol" :class="weatherTone(turn.response.weather.code)">
+                        <el-icon><component :is="weatherIcon(turn.response.weather.code)" /></el-icon>
+                      </span>
+                      <div class="weather-temperature">
+                        <strong>{{ formatTemperature(turn.response.weather.temperature) }}°</strong>
+                        <span>{{ turn.response.weather.condition }}</span>
+                      </div>
+                      <div class="weather-place">
+                        <span><i></i>实时</span>
+                        <strong>{{ turn.response.weather.location }}</strong>
+                      </div>
+                    </div>
+
+                    <div class="weather-facts">
+                      <span><small>体感</small><strong>{{ formatTemperature(turn.response.weather.apparentTemperature) }}°</strong></span>
+                      <span><small>降雨</small><strong>{{ formatPercent(turn.response.weather.rainProbability) }}</strong></span>
+                      <span><small>风速</small><strong>{{ formatWind(turn.response.weather.windSpeed) }}</strong></span>
+                    </div>
+
+                    <div v-if="turn.response.weather.daily.length" class="weather-forecast">
+                      <span v-for="day in turn.response.weather.daily" :key="day.date">
+                        <small>{{ formatWeatherDate(day.date) }}</small>
+                        <el-icon><component :is="weatherIcon(day.code)" /></el-icon>
+                        <strong>{{ formatTemperature(day.max) }}° / {{ formatTemperature(day.min) }}°</strong>
+                      </span>
+                    </div>
+                    <small class="weather-source">{{ turn.response.weather.sourceLabel }}</small>
+                  </section>
+
                   <p class="agent-reply">{{ turn.response.message }}</p>
 
                   <div v-if="turn.response.metrics.length" class="result-stats">
@@ -650,7 +701,7 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import {
   ArrowDown,
   ArrowRight,
@@ -663,18 +714,22 @@ import {
   Check,
   CircleCheck,
   CircleCheckFilled,
+  Cloudy,
   Compass,
   Delete,
   EditPen,
+  Drizzling,
   Food,
   House,
   Loading,
+  Lightning,
   Location,
   Lock,
   MagicStick,
   MapLocation,
   MoreFilled,
   OfficeBuilding,
+  PartlyCloudy,
   Plus,
   Position,
   Refresh,
@@ -741,6 +796,7 @@ const selectedDayNo = ref(1)
 const bookingItem = ref('')
 let toastTimer = null
 let chatTurnId = 0
+let agentProgressTimer = null
 
 const loginForm = reactive({
   username: 'admin',
@@ -1009,6 +1065,10 @@ onMounted(async () => {
   await loadInitialData()
 })
 
+onBeforeUnmount(() => {
+  clearInterval(agentProgressTimer)
+})
+
 function findAvatar(avatarId) {
   return avatarOptions.find((avatar) => avatar.id === avatarId) || avatarOptions[0]
 }
@@ -1242,14 +1302,17 @@ async function sendAgentMessage(message) {
     conversationList.value.unshift(created)
   }
 
-  const turn = {
+  const turn = reactive({
     id: ++chatTurnId,
     userText: text,
     loading: true,
     error: '',
     response: null,
-    actionSelected: ''
-  }
+    actionSelected: '',
+    progressSteps: buildAgentProgressSteps(text),
+    progressIndex: 0,
+    progressElapsed: 0
+  })
   chatTurns.value.push(turn)
   aiInput.value = ''
   await scrollChatToBottom()
@@ -1260,6 +1323,7 @@ async function runAgentTurn(turn) {
   agentRequestRunning.value = true
   turn.loading = true
   turn.error = ''
+  startAgentProgress(turn)
   try {
     const data = await api.aiChat(turn.userText)
     turn.response = normalizeAgentResponse(data)
@@ -1269,6 +1333,7 @@ async function runAgentTurn(turn) {
   } catch (error) {
     turn.error = error.message || 'Agent 服务暂时不可用，请稍后再试'
   } finally {
+    stopAgentProgress()
     turn.loading = false
     agentRequestRunning.value = false
     await scrollChatToBottom()
@@ -1298,6 +1363,10 @@ async function resumeBooking(turn, confirmed) {
   agentRequestRunning.value = true
   turn.loading = true
   turn.error = ''
+  turn.progressSteps = buildAgentProgressSteps('确认预订')
+  turn.progressIndex = 0
+  turn.progressElapsed = 0
+  startAgentProgress(turn)
   try {
     const data = await api.aiResume(confirmed)
     turn.response = normalizeAgentResponse(data)
@@ -1307,10 +1376,67 @@ async function resumeBooking(turn, confirmed) {
     turn.error = error.message || '预订确认失败，请稍后重试'
     turn.response = null
   } finally {
+    stopAgentProgress()
     turn.loading = false
     agentRequestRunning.value = false
     await scrollChatToBottom()
   }
+}
+
+function startAgentProgress(turn) {
+  stopAgentProgress()
+  turn.progressIndex = 0
+  turn.progressElapsed = 0
+  agentProgressTimer = setInterval(() => {
+    turn.progressElapsed += 1
+    const secondsPerStep = turn.progressSteps.length > 4 ? 3 : 2
+    turn.progressIndex = Math.min(
+      Math.floor(turn.progressElapsed / secondsPerStep),
+      turn.progressSteps.length - 1
+    )
+  }, 1000)
+}
+
+function stopAgentProgress() {
+  clearInterval(agentProgressTimer)
+  agentProgressTimer = null
+}
+
+function buildAgentProgressSteps(message) {
+  const text = message || ''
+  const step = (shortLabel, label, detail) => ({ shortLabel, label, detail })
+  if (/天气|气温|下雨|降雨|冷不冷|热不热/.test(text)) {
+    return [
+      step('理解问题', '正在理解天气问题', '识别地点和用户询问的日期'),
+      step('定位地点', '正在定位目的地', '核对城市、区县与经纬度'),
+      step('查询天气', '正在查询实时天气', '获取温度、降雨概率和风速'),
+      step('整理回答', '正在整理出行建议', '把天气数据转换成易读结论')
+    ]
+  }
+  if (/预订|购买|下单|订酒店|买票|确认/.test(text)) {
+    return [
+      step('识别需求', '正在确认预订需求', '核对预订类型和当前行程'),
+      step('检查方案', '正在检查可预订项目', '确认选项属于当前方案版本'),
+      step('创建草稿', '正在创建订单草稿', '订单提交前不会产生真实交易'),
+      step('等待结果', '正在同步预订状态', '整理下一步可执行操作')
+    ]
+  }
+  if (/规划|行程|旅游|玩\s*\d|几日游|路线/.test(text)) {
+    return [
+      step('理解需求', '正在理解旅行需求', '识别目的地、时间、人数与预算'),
+      step('读取偏好', '正在结合旅行画像', '本次明确要求优先于历史偏好'),
+      step('初步搜索', '正在进行第一阶段研究', '整理天气、住宿区域和景点候选'),
+      step('路线精查', '正在组合路线与时间', '检查地点顺序、开放时间与交通'),
+      step('方案校验', '正在检查行程合理性', '核对预算、节奏和时间冲突'),
+      step('生成回答', '正在整理完整方案', '把研究结果转换为可执行行程')
+    ]
+  }
+  return [
+    step('理解问题', '正在理解你的问题', '识别本次需求与上下文'),
+    step('选择能力', '正在选择处理方式', '只调用本次真正需要的能力'),
+    step('查找信息', '正在查找相关信息', '整理与问题最相关的内容'),
+    step('生成回答', '正在组织回答', '检查信息是否清楚、可信')
+  ]
 }
 
 async function loadConversations(showLoading = true) {
@@ -1449,12 +1575,14 @@ function formatConversationTime(value) {
 
 function normalizeAgentResponse(data) {
   const state = data?.agentState || {}
+  const intent = data?.intent || state.intent || 'unknown'
   const currentPlan = state.current_plan || state.plan_draft || null
   const dayCount = currentPlan?.days?.length || 0
-  const destination = currentPlan?.destination
-    || state.entities?.destination
-    || state.tool_results?.weather?.data?.destination
-    || '本次旅行'
+  const weatherDestination = state.tool_results?.weather?.data?.destination
+  const destination = intent === 'weather_query'
+    ? (weatherDestination || state.entities?.destination || '目的地')
+    : (currentPlan?.destination || state.entities?.destination || weatherDestination || '本次旅行')
+  const includesPlan = ['trip_plan', 'modify_plan', 'booking'].includes(intent)
   const selectedTools = Array.isArray(state.selected_tools) ? state.selected_tools : []
   const bookableCount = currentPlan ? countBookableItems(currentPlan, state.selected_options) : 0
   const budgetFeasibility = state.budget_feasibility || null
@@ -1484,7 +1612,7 @@ function normalizeAgentResponse(data) {
         { label: '最低估算', value: formatAgentMoney(budgetFeasibility.estimated_minimum, budgetFeasibility.currency) },
         { label: '建议预算', value: formatAgentMoney(budgetFeasibility.suggested_budget, budgetFeasibility.currency) }
       ]
-    : needsInput
+    : needsInput || intent === 'weather_query'
     ? []
     : currentPlan
     ? [
@@ -1500,20 +1628,91 @@ function normalizeAgentResponse(data) {
 
   return {
     status: data?.status || 'COMPLETED',
-    intent: data?.intent || state.intent || 'unknown',
+    intent,
     interrupted: Boolean(data?.interrupted || state.interrupted),
     message: data?.message || 'Agent 已完成本次处理。',
     kicker: agentResultKicker(data, state, needsInput),
     title: agentResultTitle(data?.intent || state.intent, destination, dayCount, state, needsInput),
     metrics,
     tools: needsInput ? [] : selectedTools.map((tool) => agentToolLabel(tool)),
-    plan: currentPlan,
-    planPreview: buildPlanPreview(currentPlan),
+    plan: includesPlan ? currentPlan : null,
+    planPreview: includesPlan ? buildPlanPreview(currentPlan) : [],
     weatherSummary: state.tool_results?.weather?.data?.summary || '',
+    weather: normalizeAgentWeather(state),
     selectedOptions: state.selected_options || {},
     choicePrompt: clarification.choice_prompt || '选一个更接近你的答案',
     actions
   }
+}
+
+function normalizeAgentWeather(state) {
+  const result = state.tool_results?.weather
+  const weather = result?.data
+  if (!result?.success || !weather?.current || !Array.isArray(weather.daily)) return null
+  const current = weather.current
+  const today = weather.daily[0] || {}
+  const source = result.source || weather.source || 'open-meteo'
+  return {
+    location: weather.resolved_location?.name || weather.destination || '目的地',
+    temperature: current.temperature_2m,
+    apparentTemperature: current.apparent_temperature,
+    rainProbability: today.precipitation_probability_max,
+    windSpeed: current.wind_speed_10m,
+    code: Number(current.weather_code ?? today.weather_code ?? 0),
+    condition: weatherCondition(Number(current.weather_code ?? today.weather_code ?? 0)),
+    daily: weather.daily.slice(0, 3).map((day) => ({
+      date: day.date,
+      code: Number(day.weather_code ?? 0),
+      max: day.temperature_max,
+      min: day.temperature_min
+    })),
+    sourceLabel: source.includes('nominatim')
+      ? 'Open-Meteo 实时天气 · Nominatim 定位'
+      : 'Open-Meteo 实时天气'
+  }
+}
+
+function weatherCondition(code) {
+  if (code <= 1) return '晴朗'
+  if (code === 2) return '多云'
+  if ([3, 45, 48].includes(code)) return code === 3 ? '阴天' : '有雾'
+  if (code >= 95) return '雷暴'
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return '有雨'
+  if (code >= 71 && code <= 77) return '有雪'
+  return '天气待确认'
+}
+
+function weatherIcon(code) {
+  if (code <= 1) return Sunny
+  if (code === 2) return PartlyCloudy
+  if ([3, 45, 48].includes(code)) return Cloudy
+  if (code >= 95) return Lightning
+  return Drizzling
+}
+
+function weatherTone(code) {
+  if (code <= 1) return 'sunny'
+  if (code >= 95) return 'storm'
+  if ((code >= 51 && code <= 82)) return 'rainy'
+  return 'cloudy'
+}
+
+function formatTemperature(value) {
+  return Number.isFinite(Number(value)) ? Math.round(Number(value)) : '—'
+}
+
+function formatPercent(value) {
+  return Number.isFinite(Number(value)) ? `${Math.round(Number(value))}%` : '待确认'
+}
+
+function formatWind(value) {
+  return Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)} km/h` : '待确认'
+}
+
+function formatWeatherDate(value) {
+  if (!value) return '待定'
+  const date = new Date(`${value}T00:00:00`)
+  return `${date.getMonth() + 1}/${date.getDate()}`
 }
 
 function agentResultKicker(data, state, needsInput) {

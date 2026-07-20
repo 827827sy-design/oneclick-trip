@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from app.domain.models import ToolName, ToolRecoveryAction, ToolResult
+from app.domain.models import ToolDataMode, ToolName, ToolRecoveryAction, ToolResult
 from app.tools.contracts import ToolContext
 
 
@@ -47,15 +47,8 @@ class ToolErrorHandler:
         elif tool_name is ToolName.ROUTE_MATRIX:
             data = {
                 "data_mode": "FALLBACK",
-                "route_legs": [
-                    {
-                        "from_id": start,
-                        "to_id": end,
-                        "distance_km": 5.0,
-                        "duration_minutes": 35,
-                    }
-                    for start, end in zip(selected_ids, selected_ids[1:])
-                ],
+                "route_legs": [],
+                "message": "缺少可信路线数据，未生成虚构距离和通行时间。",
             }
         elif tool_name is ToolName.OPENING_HOURS:
             data = {
@@ -78,4 +71,10 @@ class ToolErrorHandler:
                     for poi_id in selected_ids
                 ],
             }
-        return ToolResult(success=True, data=data, error_code="FALLBACK_USED")
+        return ToolResult(
+            success=True,
+            source="deterministic-fallback",
+            data_mode=ToolDataMode.FALLBACK,
+            data=data,
+            error_code="FALLBACK_USED",
+        )

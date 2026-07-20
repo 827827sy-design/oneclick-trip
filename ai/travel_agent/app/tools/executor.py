@@ -15,6 +15,14 @@ class ToolExecutor:
         self._registry = registry
         self._error_handler = error_handler or ToolErrorHandler()
 
+    @property
+    def available_tools(self) -> frozenset[ToolName]:
+        return self._registry.names
+
+    @property
+    def realtime_tools(self) -> frozenset[ToolName]:
+        return self._registry.realtime_names
+
     def execute(self, tool_name: ToolName, context: ToolContext) -> ToolExecutionOutcome:
         errors: list[ToolError] = []
         for attempt in (1, 2):

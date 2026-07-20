@@ -1630,6 +1630,7 @@ dependencies = [
     { name = "aiomysql" },
     { name = "chromadb" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "langchain" },
     { name = "langchain-openai" },
     { name = "langgraph" },
@@ -1643,7 +1644,6 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
 ]
 
@@ -1652,7 +1652,7 @@ requires-dist = [
     { name = "aiomysql", specifier = ">=0.3,<0.4" },
     { name = "chromadb", specifier = ">=1.0,<2" },
     { name = "fastapi", specifier = ">=0.139,<0.140" },
-    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28,<1" },
+    { name = "httpx", specifier = ">=0.28,<1" },
     { name = "langchain", specifier = ">=1.3,<1.4" },
     { name = "langchain-openai", specifier = ">=1.1,<2" },
     { name = "langgraph", specifier = ">=1.2,<1.3" },

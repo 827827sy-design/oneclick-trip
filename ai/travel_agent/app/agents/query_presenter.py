@@ -124,7 +124,9 @@ class LangChainQueryPresenterAgent:
         """Reject concrete dates that are absent from every tool result."""
         if not any(result.success for result in results.values()):
             return
-        dates = re.findall(r"(?:20\d{2}年)?\d{1,2}月\d{1,2}日", reply)
+        dates = list(
+            re.finditer(r"(?:(20\d{2})年)?(\d{1,2})月(\d{1,2})日", reply)
+        )
         if not dates:
             return
         source = json.dumps(
@@ -135,8 +137,30 @@ class LangChainQueryPresenterAgent:
             },
             ensure_ascii=False,
         )
-        if any(date not in source for date in dates):
-            raise ValueError("query presenter introduced an ungrounded date")
+        source_dates = {
+            (int(year), int(month), int(day))
+            for year, month, day in re.findall(r"(20\d{2})-(\d{2})-(\d{2})", source)
+        }
+        source_dates.update(
+            (int(year), int(month), int(day))
+            for year, month, day in re.findall(
+                r"(20\d{2})年(\d{1,2})月(\d{1,2})日", source
+            )
+        )
+        for match in dates:
+            year = int(match.group(1)) if match.group(1) else None
+            month = int(match.group(2))
+            day = int(match.group(3))
+            grounded = (
+                (year, month, day) in source_dates
+                if year is not None
+                else any(
+                    source_month == month and source_day == day
+                    for _, source_month, source_day in source_dates
+                )
+            )
+            if not grounded:
+                raise ValueError("query presenter introduced an ungrounded date")
 
 
 class RuleBasedQueryPresenterAgent:
@@ -180,8 +204,8 @@ class RuleBasedQueryPresenterAgent:
         result = results.get(ToolName.WEATHER.value)
         if not result or not result.success:
             return "暂时没有可用的天气信息，请稍后再试。"
-        mode = result.data.get("data_mode", "DEMO")
-        return f"以下是{mode}演示数据：{result.data.get('summary', '暂无天气摘要')}"
+        source = result.source if result.source != "unknown" else "天气服务"
+        return f"{result.data.get('summary', '暂无天气摘要')}（来源：{source}）"
 
     @staticmethod
     def _hotel(results: dict[str, ToolResult]) -> str:

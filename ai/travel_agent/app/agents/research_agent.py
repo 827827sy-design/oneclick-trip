@@ -74,6 +74,8 @@ class LangChainPhase1ResearchAgent:
                     "你是一键游规划阶段 1 的旅游研究 Agent，只输出 JSON，不要 Markdown。"
                     "根据本次明确需求和长期旅游画像，生成景点候选、住宿区域候选和城际交通方式候选；"
                     "本次明确要求优先于历史记忆。景点应是真实存在且你有把握的地点，覆盖用户偏好并避免明确反感项。"
+                    "只有确信景点经纬度时才填写 latitude 和 longitude，否则必须为 null，禁止猜坐标；"
+                    "模型给出的坐标 coordinate_source 必须为 AI_KNOWLEDGE，coordinates_verified 必须为 false。"
                     "住宿只推荐区域，不虚构酒店；交通只给方式级建议，不虚构班次、航班号或实时余票。"
                     "票价、住宿价和交通价只能填写保守的 AI 估算，用于预算规划，不得声称为实时报价。"
                     "transport_options.price 统一表示每人往返城际交通的估算总价，不是单程价格；"
@@ -102,7 +104,17 @@ class LangChainPhase1ResearchAgent:
     ) -> Phase1Research:
         del preferences
         pois = [
-            poi.model_copy(update={"poi_id": f"AI-POI-{index}"})
+            poi.model_copy(
+                update={
+                    "poi_id": f"AI-POI-{index}",
+                    "coordinate_source": (
+                        "AI_KNOWLEDGE"
+                        if poi.latitude is not None and poi.longitude is not None
+                        else None
+                    ),
+                    "coordinates_verified": False,
+                }
+            )
             for index, poi in enumerate(research.poi_candidates, start=1)
             if poi.name.strip()
         ]
