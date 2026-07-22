@@ -17,6 +17,7 @@ from app.domain.models import (
 
 
 class ToolContext(DomainModel):
+    query: str | None = None
     entities: TravelEntities = Field(default_factory=TravelEntities)
     preferences: UserPreferences = Field(default_factory=UserPreferences)
     phase1_research: Phase1Research | None = None

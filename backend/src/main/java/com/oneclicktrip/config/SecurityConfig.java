@@ -4,6 +4,7 @@ import com.oneclicktrip.security.JwtAuthenticationFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -16,6 +17,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
+import java.nio.charset.StandardCharsets;
 
 @Configuration
 @EnableWebSecurity
@@ -29,16 +31,36 @@ public class SecurityConfig {
      * 3. 每次请求都会先经过 JwtAuthenticationFilter，把 token 解析成当前用户。
      */
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthenticationFilter) throws Exception {
+    public SecurityFilterChain securityFilterChain(
+            HttpSecurity http,
+            JwtAuthenticationFilter jwtAuthenticationFilter
+    ) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint((request, response, exception) -> {
+                            response.setStatus(401);
+                            response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+                            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                            response.getWriter().write(
+                                    "{\"success\":false,\"message\":\"请先登录\",\"data\":null}"
+                            );
+                        })
+                        .accessDeniedHandler((request, response, exception) -> {
+                            response.setStatus(403);
+                            response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+                            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                            response.getWriter().write(
+                                    "{\"success\":false,\"message\":\"没有访问权限\",\"data\":null}"
+                            );
+                        })
+                )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**", "/api/health", "/error").permitAll()
+                        .requestMatchers("/api/internal/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/cities/**", "/api/trip-templates/**").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/trip-plans/generate", "/api/ai/chat", "/api/ai/resume").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/trip-plans/**").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )

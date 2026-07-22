@@ -4,8 +4,8 @@ services:
     container_name: oneclick-trip-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: oneclick_trip
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-oneclick_trip}
       TZ: Asia/Shanghai
     ports:
       - "3306:3306"
@@ -15,6 +15,34 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
 
+  redis:
+    image: redis:7.4-alpine
+    container_name: oneclick-trip-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - redis_data:/data
+
+  chroma:
+    image: chromadb/chroma:1.5.9
+    container_name: oneclick-trip-chroma
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+    volumes:
+      - chroma_data:/data
+
 volumes:
   mysql_data:
-
+  redis_data:
+  chroma_data:

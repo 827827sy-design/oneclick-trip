@@ -97,7 +97,7 @@ def build_travel_graph(
         memory_candidate_agent or RuleBasedMemoryCandidateAgent()
     )
     configured_registry = tool_registry or build_allowed_demo_registry()
-    configured_selector = tool_selector or ToolSelector()
+    configured_selector = tool_selector or ToolSelector(configured_registry.names)
     configured_executor = tool_executor or ToolExecutor(configured_registry)
     configured_reviewer = reviewer_agent or RuleBasedReviewerAgent()
     configured_revision = revision_agent or RuleBasedRevisionAgent()
@@ -129,6 +129,8 @@ def build_travel_graph(
         reviewer_agent=configured_reviewer,
         revision_agent=configured_revision,
         hard_validator=configured_validator,
+        tool_selector=configured_selector,
+        tool_executor=configured_executor,
         plan_repository=plan_repository,
     )
     booking_subgraph = build_booking_subgraph(backend=configured_booking_backend)

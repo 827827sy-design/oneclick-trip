@@ -27,6 +27,7 @@ class DirectModifyAgent(Protocol):
         entities: TravelEntities,
         preferences: UserPreferences,
         conversation_context: list[str] | None = None,
+        research_context: dict | None = None,
     ) -> TravelPlan:
         """Modify a plan directly without synthetic discovery tools."""
 
@@ -57,6 +58,7 @@ class LangChainDirectModifyAgent:
         entities: TravelEntities,
         preferences: UserPreferences,
         conversation_context: list[str] | None = None,
+        research_context: dict | None = None,
     ) -> list[SystemMessage | HumanMessage]:
         del conversation_id
         return [
@@ -65,6 +67,8 @@ class LangChainDirectModifyAgent:
                     "你是一键游的行程修改 Agent。根据用户要求定位具体 day_index、时段或活动，修改当前 TravelPlan。"
                     "保留未受影响的安排；需要替换地点时可以使用通用知识补充用户点名的真实地点，但不得"
                     "宣称营业时间、价格、余量或路线为实时信息。输出完整新方案，不要只返回差异。"
+                    "提供联网研究证据时优先依据官方与可信来源；若证据不支持用户点名地点，"
+                    "不得凭空补造该地点的营业状态、路线和价格。"
                     "保留 plan_id，version 在当前版本基础上加 1。"
                     "hotel_area_id、transport_option_id、ticket_option_id 必须为空；价格只能是 AI 估算。"
                     "只输出 JSON，不要使用 Markdown。输出必须符合以下 JSON Schema："
@@ -76,6 +80,7 @@ class LangChainDirectModifyAgent:
                     f"修改要求：{query}\n需求：{entities.model_dump_json()}\n"
                     f"最近 20 轮对话：{conversation_context or []}\n"
                     f"偏好：{preferences.model_dump_json()}\n"
+                    f"联网研究证据：{json.dumps(research_context or {}, ensure_ascii=False)}\n"
                     f"当前方案：{current_plan.model_dump_json()}"
                 )
             ),
@@ -91,8 +96,9 @@ class LangChainDirectModifyAgent:
         entities: TravelEntities,
         preferences: UserPreferences,
         conversation_context: list[str] | None = None,
+        research_context: dict | None = None,
     ) -> TravelPlan:
-        del conversation_context
+        del conversation_context, research_context
         proposal = LangChainDirectPlannerAgent._normalize(
             DirectPlanProposal(feasible=True, plan=plan),
             query=query,
@@ -121,8 +127,9 @@ class RuleBasedDirectModifyAgent:
         entities: TravelEntities,
         preferences: UserPreferences,
         conversation_context: list[str] | None = None,
+        research_context: dict | None = None,
     ) -> TravelPlan:
-        del conversation_id, preferences, conversation_context
+        del conversation_id, preferences, conversation_context, research_context
         analysis = self._analyzer.analyze(query, current_plan, entities)
         candidates = []
         if analysis.request.replacement_name:

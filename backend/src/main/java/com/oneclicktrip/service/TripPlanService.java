@@ -1,18 +1,30 @@
 package com.oneclicktrip.service;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oneclicktrip.common.BusinessException;
+import com.oneclicktrip.dto.AiTripPlanDetailResponse;
 import com.oneclicktrip.dto.GenerateTripPlanRequest;
 import com.oneclicktrip.dto.TripPlanDayResponse;
 import com.oneclicktrip.dto.TripPlanItemResponse;
 import com.oneclicktrip.dto.TripPlanResponse;
+import com.oneclicktrip.dto.TripPlanSummaryResponse;
 import com.oneclicktrip.entity.*;
 import com.oneclicktrip.mapper.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -20,25 +32,33 @@ import java.util.stream.Collectors;
 
 @Service
 public class TripPlanService {
+    private static final Logger log = LoggerFactory.getLogger(TripPlanService.class);
+
     private final CatalogService catalogService;
     private final TripPlanMapper tripPlanMapper;
     private final TripPlanDayMapper tripPlanDayMapper;
     private final TripPlanItemMapper tripPlanItemMapper;
+    private final JdbcTemplate jdbcTemplate;
+    private final ObjectMapper objectMapper;
 
     public TripPlanService(
             CatalogService catalogService,
             TripPlanMapper tripPlanMapper,
             TripPlanDayMapper tripPlanDayMapper,
-            TripPlanItemMapper tripPlanItemMapper
+            TripPlanItemMapper tripPlanItemMapper,
+            JdbcTemplate jdbcTemplate,
+            ObjectMapper objectMapper
     ) {
         this.catalogService = catalogService;
         this.tripPlanMapper = tripPlanMapper;
         this.tripPlanDayMapper = tripPlanDayMapper;
         this.tripPlanItemMapper = tripPlanItemMapper;
+        this.jdbcTemplate = jdbcTemplate;
+        this.objectMapper = objectMapper;
     }
 
     @Transactional
-    public TripPlanResponse generate(GenerateTripPlanRequest request) {
+    public TripPlanResponse generate(Long userId, GenerateTripPlanRequest request) {
         // 1. 先把生成行程需要的基础资料查出来。
         // 当前 MVP 只依赖本地数据库；未来 AI Agent 也可以先查这些资料再做优化。
         City city = catalogService.getCity(request.cityId());
@@ -64,6 +84,7 @@ public class TripPlanService {
 
         // 2. 先保存行程主表。主表只记录“这是谁的几日游、预算、偏好”等概要信息。
         TripPlan plan = new TripPlan();
+        plan.setUserId(userId);
         plan.setCityId(city.getId());
         plan.setDepartureCity(defaultText(request.departureCity(), "本地"));
         plan.setTitle(city.getName() + days + "日" + paceText(pace) + "游");
@@ -99,6 +120,104 @@ public class TripPlanService {
         plan.setTotalBudget(total.setScale(2, RoundingMode.HALF_UP));
         tripPlanMapper.updateById(plan);
         return getPlan(plan.getId());
+    }
+
+    public List<TripPlanSummaryResponse> listUserPlans(Long userId) {
+        List<TripPlanSummaryResponse> summaries = new ArrayList<>();
+
+        List<TripPlan> rulePlans = tripPlanMapper.selectList(Wrappers.<TripPlan>lambdaQuery()
+                .eq(TripPlan::getUserId, userId)
+                .orderByDesc(TripPlan::getUpdateTime));
+        for (TripPlan rulePlan : rulePlans) {
+            City city = catalogService.getCity(rulePlan.getCityId());
+            summaries.add(new TripPlanSummaryResponse(
+                    "RULE-" + rulePlan.getId(),
+                    "RULE",
+                    rulePlan.getId(),
+                    String.valueOf(rulePlan.getId()),
+                    null,
+                    1,
+                    city.getName(),
+                    rulePlan.getTitle(),
+                    rulePlan.getDays(),
+                    rulePlan.getPeopleCount(),
+                    rulePlan.getStartDate(),
+                    rulePlan.getTotalBudget(),
+                    "CNY",
+                    rulePlan.getSourceType(),
+                    rulePlan.getSummary(),
+                    rulePlan.getCreateTime()
+            ));
+        }
+
+        try {
+            summaries.addAll(jdbcTemplate.query("""
+                            SELECT id, conversation_id, plan_id, plan_version, destination,
+                                   plan_json, created_at
+                            FROM ai_travel_plan_versions
+                            WHERE user_id = ? AND is_current = 1
+                            ORDER BY created_at DESC
+                            """,
+                    (resultSet, rowNum) -> toAiSummary(
+                            resultSet.getLong("id"),
+                            resultSet.getString("conversation_id"),
+                            resultSet.getString("plan_id"),
+                            resultSet.getInt("plan_version"),
+                            resultSet.getString("destination"),
+                            resultSet.getString("plan_json"),
+                            resultSet.getTimestamp("created_at")
+                    ),
+                    String.valueOf(userId)));
+        } catch (DataAccessException exception) {
+            // The Java application can still run before the AI service creates its tables.
+            log.warn("AI plan table is unavailable; returning rule plans only", exception);
+        }
+
+        summaries.sort(Comparator.comparing(
+                TripPlanSummaryResponse::createTime,
+                Comparator.nullsLast(Comparator.reverseOrder())
+        ));
+        return summaries;
+    }
+
+    public TripPlanResponse getUserRulePlan(Long userId, Long id) {
+        TripPlan plan = tripPlanMapper.selectById(id);
+        if (plan == null || !userId.equals(plan.getUserId())) {
+            throw new BusinessException("行程不存在或无权查看");
+        }
+        return getPlan(id);
+    }
+
+    public AiTripPlanDetailResponse getUserAiPlan(Long userId, Long recordId) {
+        List<AiTripPlanDetailResponse> plans;
+        try {
+            plans = jdbcTemplate.query("""
+                            SELECT id, conversation_id, plan_id, plan_version, plan_json
+                            FROM ai_travel_plan_versions
+                            WHERE id = ? AND user_id = ? AND is_current = 1
+                            """,
+                    (resultSet, rowNum) -> {
+                        JsonNode root = readPlanJson(resultSet.getString("plan_json"));
+                        return new AiTripPlanDetailResponse(
+                                resultSet.getLong("id"),
+                                resultSet.getString("conversation_id"),
+                                resultSet.getString("plan_id"),
+                                resultSet.getInt("plan_version"),
+                                root.path("plan"),
+                                root.path("entities"),
+                                root.path("selected_options")
+                        );
+                    },
+                    recordId,
+                    String.valueOf(userId));
+        } catch (DataAccessException exception) {
+            throw new BusinessException("AI 行程暂时无法读取");
+        }
+
+        if (plans.isEmpty()) {
+            throw new BusinessException("行程不存在或无权查看");
+        }
+        return plans.get(0);
     }
 
     public TripPlanResponse getPlan(Long id) {
@@ -171,6 +290,79 @@ public class TripPlanService {
             items.add(item(dayId, "HOTEL", hotel.getName(), hotel.getSummary(), hotel.getArea(), "20:00", "次日", hotel.getAvgPrice(), 6));
         }
         return items;
+    }
+
+    private TripPlanSummaryResponse toAiSummary(
+            Long recordId,
+            String conversationId,
+            String planId,
+            Integer version,
+            String destination,
+            String planJson,
+            Timestamp createdAt
+    ) {
+        JsonNode root = readPlanJson(planJson);
+        JsonNode planNode = root.path("plan");
+        JsonNode entitiesNode = root.path("entities");
+        int days = planNode.path("days").isArray() ? planNode.path("days").size() : entitiesNode.path("days").asInt(0);
+        int people = entitiesNode.path("people").asInt(1);
+        BigDecimal totalBudget = parseMoney(planNode.path("total_cost").asText("0"));
+        LocalDate startDate = parseDate(entitiesNode.path("start_date").asText(null));
+        String title = destination + (days > 0 ? days + "天" : "") + "智能行程";
+        String summary = firstText(planNode.path("assumptions"), "由 AI 多阶段规划生成，可回到原会话继续修改。");
+
+        return new TripPlanSummaryResponse(
+                "AI-" + recordId,
+                "AI",
+                recordId,
+                planId,
+                conversationId,
+                version,
+                destination,
+                title,
+                days,
+                people,
+                startDate,
+                totalBudget,
+                planNode.path("currency").asText("CNY"),
+                "AI",
+                summary,
+                createdAt == null ? null : createdAt.toLocalDateTime()
+        );
+    }
+
+    private JsonNode readPlanJson(String planJson) {
+        try {
+            return objectMapper.readTree(planJson);
+        } catch (JsonProcessingException exception) {
+            throw new BusinessException("行程数据格式异常");
+        }
+    }
+
+    private BigDecimal parseMoney(String value) {
+        try {
+            return new BigDecimal(value == null || value.isBlank() ? "0" : value);
+        } catch (NumberFormatException exception) {
+            return BigDecimal.ZERO;
+        }
+    }
+
+    private LocalDate parseDate(String value) {
+        try {
+            return value == null || value.isBlank() || "null".equals(value) ? null : LocalDate.parse(value);
+        } catch (RuntimeException exception) {
+            return null;
+        }
+    }
+
+    private String firstText(JsonNode values, String fallback) {
+        if (values.isArray() && !values.isEmpty()) {
+            String value = values.get(0).asText("");
+            if (!value.isBlank()) {
+                return value;
+            }
+        }
+        return fallback;
     }
 
     private TripPlanItem item(Long dayId, String type, String title, String description, String address,

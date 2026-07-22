@@ -1,0 +1,3803 @@
+app:
+  description: Flash/Pro 模型分层、跨轮检查点、草稿绑定确认、工具限次重试与缓存降级的 LangGraph 主骨架。
+  icon: 🧭
+  icon_background: '#E8F6F0'
+  mode: advanced-chat
+  name: 一键游 Multi-Agent 主骨架 v3
+  use_icon_as_answer_icon: true
+dependencies: []
+kind: app
+version: 0.3.0
+workflow:
+  conversation_variables:
+  - description: 当前对话的轻量检查点；正式 LangGraph 由 MySQL CheckpointRepository 持久化。
+    id: 1a7a1d8e-4c3e-4e48-bbf2-001001001001
+    name: travel_checkpoint_json
+    selector:
+    - conversation
+    - travel_checkpoint_json
+    value: '{}'
+    value_type: string
+  - description: 当前结构化行程及版本，用于修改方案和预订引用。
+    id: 2b8b2e9f-5d4f-4f59-cc03-002002002002
+    name: current_plan_json
+    selector:
+    - conversation
+    - current_plan_json
+    value: '{}'
+    value_type: string
+  - description: 等待用户确认的订单草稿；绑定 conversation_id、计划和过期时间。
+    id: 3c9c3fa0-6e50-406a-dd14-003003003003
+    name: booking_draft_json
+    selector:
+    - conversation
+    - booking_draft_json
+    value: '{}'
+    value_type: string
+  - description: 会话状态乐观版本号。
+    id: 4dad40b1-7f61-417b-ee25-004004004004
+    name: checkpoint_version
+    selector:
+    - conversation
+    - checkpoint_version
+    value: 0
+    value_type: number
+  - description: 最近一次工具错误及恢复决策。
+    id: 5ebe51c2-8072-428c-ff36-005005005005
+    name: last_tool_errors_json
+    selector:
+    - conversation
+    - last_tool_errors_json
+    value: '[]'
+    value_type: string
+  environment_variables: []
+  features:
+    file_upload:
+      enabled: false
+    opening_statement: 当前为一键游 v3 架构演示：简单任务使用 Flash，复杂规划使用 Pro；方案与订单草稿可跨轮恢复，所有预订仍为 Mock。
+    retriever_resource:
+      enabled: true
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions:
+    - 从南京去成都玩三天，两个人，人均预算3000元，喜欢美食和拍照
+    - 帮我查8月去杭州的天气、酒店和高铁，并做一份轻松行程
+    - 我想预订上次方案中的酒店和熊猫基地门票
+    - 查看我的旅行偏好，并记住我以后优先坐高铁
+    suggested_questions_after_answer:
+      enabled: true
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+    - data:
+        isInIteration: false
+        sourceType: start
+        targetType: code
+      id: start-short
+      source: start
+      sourceHandle: source
+      target: short_memory_loader
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: code
+      id: short-long
+      source: short_memory_loader
+      sourceHandle: source
+      target: long_memory_reader
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: code
+      id: long-context
+      source: long_memory_reader
+      sourceHandle: source
+      target: memory_context_builder
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: llm
+        targetType: code
+      id: intent-state
+      source: intent_agent
+      sourceHandle: source
+      target: state_normalizer
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: llm
+      id: state-memory-candidate
+      source: state_normalizer
+      sourceHandle: source
+      target: memory_candidate_agent
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: llm
+        targetType: code
+      id: candidate-policy
+      source: memory_candidate_agent
+      sourceHandle: source
+      target: memory_policy_guard
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: code
+      id: policy-writer
+      source: memory_policy_guard
+      sourceHandle: source
+      target: long_memory_writer
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: code
+      id: writer-state
+      source: long_memory_writer
+      sourceHandle: source
+      target: pre_route_state
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: if-else
+      id: state-supervisor
+      source: pre_route_state
+      sourceHandle: source
+      target: supervisor
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: llm
+      id: supervisor-memory
+      source: supervisor
+      sourceHandle: memory_manage
+      target: memory_management_agent
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: llm
+        targetType: answer
+      id: memory-answer
+      source: memory_management_agent
+      sourceHandle: source
+      target: memory_management_answer
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: code
+      id: supervisor-booking
+      source: supervisor
+      sourceHandle: booking
+      target: booking_quote_refresher
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: code
+      id: quote-draft
+      source: booking_quote_refresher
+      sourceHandle: source
+      target: booking_draft_builder
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: llm
+        targetType: answer
+      id: confirm-answer
+      source: booking_confirmation
+      sourceHandle: source
+      target: booking_draft_answer
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: code
+      id: supervisor-tool-selector
+      source: supervisor
+      sourceHandle: 'false'
+      target: tool_selector
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: llm
+        targetType: answer
+      id: clarify-answer
+      source: clarification_agent
+      sourceHandle: source
+      target: clarification_answer
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: if-else
+      id: selector-task-router
+      source: tool_selector
+      sourceHandle: source
+      target: task_router
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: code
+      id: task-trip
+      source: task_router
+      sourceHandle: trip_plan
+      target: plan_slot_guard
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: if-else
+      id: plan-slots-route
+      source: plan_slot_guard
+      sourceHandle: source
+      target: plan_readiness_router
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: code
+      id: plan-ready-phase1
+      source: plan_readiness_router
+      sourceHandle: execute
+      target: phase1_research
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: llm
+      id: plan-missing-clarify
+      source: plan_readiness_router
+      sourceHandle: 'false'
+      target: clarification_agent
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: llm
+        targetType: code
+      id: candidates-phase2
+      source: candidate_selector
+      sourceHandle: source
+      target: phase2_research
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: code
+      id: phase2-reducer
+      source: phase2_research
+      sourceHandle: source
+      target: planning_state_reducer
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: llm
+      id: reducer-planner
+      source: planning_state_reducer
+      sourceHandle: source
+      target: planner
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: llm
+        targetType: code
+      id: planner-hard
+      source: planner
+      sourceHandle: source
+      target: hard_validator
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: llm
+      id: hard-soft
+      source: hard_validator
+      sourceHandle: source
+      target: soft_reviewer
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: llm
+        targetType: code
+      id: soft-parser
+      source: soft_reviewer
+      sourceHandle: source
+      target: review_parser
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: if-else
+      id: parser-quality
+      source: review_parser
+      sourceHandle: source
+      target: quality_router_v2
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: llm
+      id: quality-revise
+      source: quality_router_v2
+      sourceHandle: 'false'
+      target: revision
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: llm
+        targetType: code
+      id: revision-hard2
+      source: revision
+      sourceHandle: source
+      target: second_hard_validator
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: llm
+        targetType: answer
+      id: final-revised-answer
+      source: final_reviewer
+      sourceHandle: source
+      target: revised_plan_answer
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: code
+      id: task-modify
+      source: task_router
+      sourceHandle: modify_plan
+      target: current_plan_loader
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: llm
+      id: load-modify
+      source: current_plan_loader
+      sourceHandle: source
+      target: modify_agent
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: llm
+        targetType: code
+      id: modify-validate
+      source: modify_agent
+      sourceHandle: source
+      target: modify_validator
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: llm
+        targetType: answer
+      id: modify-answer
+      source: modify_reviewer
+      sourceHandle: source
+      target: modify_answer
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: code
+      id: task-query
+      source: task_router
+      sourceHandle: 'false'
+      target: query_slot_resolver
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: if-else
+      id: query-slots-route
+      source: query_slot_resolver
+      sourceHandle: source
+      target: query_readiness_router
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: code
+      id: query-ready-execute
+      source: query_readiness_router
+      sourceHandle: execute
+      target: query_executor
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: llm
+      id: query-missing-clarify
+      source: query_readiness_router
+      sourceHandle: 'false'
+      target: clarification_agent
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: llm
+        targetType: answer
+      id: query-answer
+      source: query_presenter
+      sourceHandle: source
+      target: query_answer
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: code
+      id: context-checkpoint
+      source: memory_context_builder
+      sourceHandle: source
+      target: checkpoint_hydrator
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: llm
+      id: checkpoint-intent
+      source: checkpoint_hydrator
+      sourceHandle: source
+      target: intent_agent
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: code
+      id: quality-pass-checkpoint
+      source: quality_router_v2
+      sourceHandle: pass
+      target: plan_checkpoint_builder
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: assigner
+      id: plan-checkpoint-assign
+      source: plan_checkpoint_builder
+      sourceHandle: source
+      target: plan_checkpoint_assigner
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: assigner
+        targetType: answer
+      id: plan-assign-answer
+      source: plan_checkpoint_assigner
+      sourceHandle: source
+      target: plan_answer
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: code
+      id: hard2-checkpoint
+      source: second_hard_validator
+      sourceHandle: source
+      target: revised_checkpoint_builder
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: assigner
+      id: revised-checkpoint-assign
+      source: revised_checkpoint_builder
+      sourceHandle: source
+      target: revised_checkpoint_assigner
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: assigner
+        targetType: llm
+      id: revised-assign-final
+      source: revised_checkpoint_assigner
+      sourceHandle: source
+      target: final_reviewer
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: code
+      id: modify-checkpoint
+      source: modify_validator
+      sourceHandle: source
+      target: modify_checkpoint_builder
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: assigner
+      id: modify-checkpoint-assign
+      source: modify_checkpoint_builder
+      sourceHandle: source
+      target: modify_checkpoint_assigner
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: assigner
+        targetType: llm
+      id: modify-assign-review
+      source: modify_checkpoint_assigner
+      sourceHandle: source
+      target: modify_reviewer
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: code
+      id: draft-checkpoint
+      source: booking_draft_builder
+      sourceHandle: source
+      target: draft_checkpoint_builder
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: assigner
+      id: draft-checkpoint-assign
+      source: draft_checkpoint_builder
+      sourceHandle: source
+      target: draft_checkpoint_assigner
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: assigner
+        targetType: llm
+      id: draft-assign-confirm
+      source: draft_checkpoint_assigner
+      sourceHandle: source
+      target: booking_confirmation
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: code
+      id: supervisor-booking-confirm-guard
+      source: supervisor
+      sourceHandle: booking_confirm
+      target: booking_confirmation_guard
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: if-else
+      id: booking-guard-router
+      source: booking_confirmation_guard
+      sourceHandle: source
+      target: booking_confirmation_router
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: code
+      id: booking-valid-submit
+      source: booking_confirmation_router
+      sourceHandle: valid_draft
+      target: booking_submit_gateway
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: answer
+      id: booking-invalid-answer
+      source: booking_confirmation_router
+      sourceHandle: 'false'
+      target: invalid_draft_answer
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: code
+      id: submit-invalidate
+      source: booking_submit_gateway
+      sourceHandle: source
+      target: submit_state_builder
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: assigner
+      id: submit-state-assign
+      source: submit_state_builder
+      sourceHandle: source
+      target: submit_state_assigner
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: assigner
+        targetType: answer
+      id: submit-assign-answer
+      source: submit_state_assigner
+      sourceHandle: source
+      target: booking_submit_answer
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: code
+      id: query-recovery-policy
+      source: query_executor
+      sourceHandle: source
+      target: query_recovery_policy
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: assigner
+      id: query-error-assign
+      source: query_recovery_policy
+      sourceHandle: source
+      target: tool_error_assigner
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: assigner
+        targetType: if-else
+      id: query-recovery-route
+      source: tool_error_assigner
+      sourceHandle: source
+      target: query_recovery_router
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: llm
+      id: query-continue-present
+      source: query_recovery_router
+      sourceHandle: 'false'
+      target: query_presenter
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: code
+      id: query-retry-execute
+      source: query_recovery_router
+      sourceHandle: retry
+      target: query_retry_executor
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: llm
+      id: query-retry-present
+      source: query_retry_executor
+      sourceHandle: source
+      target: query_retry_presenter
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: llm
+        targetType: answer
+      id: query-retry-answer
+      source: query_retry_presenter
+      sourceHandle: source
+      target: query_retry_answer
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: code
+      id: query-fallback-execute
+      source: query_recovery_router
+      sourceHandle: fallback
+      target: query_fallback_executor
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: llm
+      id: query-fallback-present
+      source: query_fallback_executor
+      sourceHandle: source
+      target: query_fallback_presenter
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: llm
+        targetType: answer
+      id: query-fallback-answer
+      source: query_fallback_presenter
+      sourceHandle: source
+      target: query_fallback_answer
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: answer
+      id: query-degraded-answer
+      source: query_recovery_router
+      sourceHandle: degraded
+      target: query_failure_answer
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: code
+      id: phase1-recovery-audit
+      source: phase1_research
+      sourceHandle: source
+      target: phase1_recovery_audit
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: code
+        targetType: llm
+      id: recovery-candidates
+      source: phase1_recovery_audit
+      sourceHandle: source
+      target: candidate_selector
+      targetHandle: target
+      type: custom
+    nodes:
+    - data:
+        desc: 用户自然语言入口，对应 LangGraph START。
+        selected: false
+        title: 开始 / 用户输入
+        type: start
+        variables: []
+      height: 90
+      id: start
+      position:
+        x: 40
+        y: 680
+      positionAbsolute:
+        x: 40
+        y: 680
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 260
+    - data:
+        code: "import json\n\ndef main(query: str, conversation_id: str) -> dict:\n    # Dify 的真实短期记忆由各 LLM 节点的 memory.window\
+          \ 管理。\n    # 本节点把会话边界显式写入状态，便于后续迁移到 LangGraph checkpointer。\n    payload = {\n        'scope': 'conversation',\n\
+          \        'conversation_id': conversation_id or 'CURRENT_CONVERSATION',\n        'window_size': 20,\n        'current_query':\
+          \ query,\n        'summary': '',\n        'backend': 'DIFY_MESSAGE_WINDOW',\n        'expires_when': 'conversation_closed_or_ttl'\n\
+          \    }\n    return {'short_memory_json': json.dumps(payload, ensure_ascii=False)}"
+        code_language: python3
+        desc: 单个聊天窗口内的短期记忆边界。Dify 使用最近 20 轮消息，LangGraph 对应 checkpointer + thread_id。
+        outputs:
+          short_memory_json:
+            children: null
+            type: string
+        selected: false
+        title: 记忆 1 - 会话短期记忆
+        type: code
+        variables:
+        - value_selector:
+          - sys
+          - query
+          variable: query
+        - value_selector:
+          - sys
+          - conversation_id
+          variable: conversation_id
+      height: 110
+      id: short_memory_loader
+      position:
+        x: 360
+        y: 680
+      positionAbsolute:
+        x: 360
+        y: 680
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 280
+    - data:
+        code: "import json\n\ndef main(user_id: str) -> dict:\n    # 原型只声明接口，不连接真实数据库。\n    # FastAPI/LangGraph 实现时调用 GET\
+          \ /tools/memory/profile/{user_id}。\n    profile = {\n        'user_id': user_id or 'ANONYMOUS',\n        'stable_tags':\
+          \ [],\n        'pace_preference': None,\n        'budget_style': None,\n        'food_preferences': [],\n      \
+          \  'transport_preferences': [],\n        'hotel_preferences': [],\n        'activity_preferences': [],\n       \
+          \ 'avoidances': [],\n        'confidence': {},\n        'updated_at': None\n    }\n    return {\n        'profile_json':\
+          \ json.dumps(profile, ensure_ascii=False),\n        'read_status': 'INTERFACE_ONLY',\n        'endpoint': 'GET /tools/memory/profile/{user_id}'\n\
+          \    }"
+        code_language: python3
+        desc: 跨会话读取用户的稳定旅游习惯；真实数据由 MySQL 用户画像表提供。
+        outputs:
+          endpoint:
+            children: null
+            type: string
+          profile_json:
+            children: null
+            type: string
+          read_status:
+            children: null
+            type: string
+        selected: false
+        title: 记忆 2 - 长期旅游画像读取
+        type: code
+        variables:
+        - value_selector:
+          - sys
+          - user_id
+          variable: user_id
+      height: 110
+      id: long_memory_reader
+      position:
+        x: 700
+        y: 680
+      positionAbsolute:
+        x: 700
+        y: 680
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 280
+    - data:
+        code: "import json\n\ndef main(short_memory_json: str, profile_json: str) -> dict:\n    try:\n        short_memory\
+          \ = json.loads(short_memory_json or '{}')\n    except Exception:\n        short_memory = {}\n    try:\n        profile\
+          \ = json.loads(profile_json or '{}')\n    except Exception:\n        profile = {}\n    context = {\n        'short_term':\
+          \ short_memory,\n        'long_term_profile': profile,\n        'rules': {\n            'current_explicit_request_overrides_memory':\
+          \ True,\n            'never_infer_sensitive_attributes': True,\n            'long_term_requires_explicit_or_repeated_signal':\
+          \ True\n        }\n    }\n    return {'memory_context': json.dumps(context, ensure_ascii=False)}"
+        code_language: python3
+        desc: 合并短期上下文和长期画像。当前用户明确表达始终高于历史偏好。
+        outputs:
+          memory_context:
+            children: null
+            type: string
+        selected: false
+        title: 记忆 3 - 上下文合并
+        type: code
+        variables:
+        - value_selector:
+          - short_memory_loader
+          - short_memory_json
+          variable: short_memory_json
+        - value_selector:
+          - long_memory_reader
+          - profile_json
+          variable: profile_json
+      height: 110
+      id: memory_context_builder
+      position:
+        x: 1040
+        y: 680
+      positionAbsolute:
+        x: 1040
+        y: 680
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 280
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: 结合短期对话和长期旅游画像，识别意图、槽位、缺失信息与用户标签。
+        memory:
+          query_prompt_template: '{{#sys.query#}}'
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: true
+            size: 20
+        model:
+          provider: langgenius/deepseek/deepseek
+          name: deepseek-v4-flash
+          mode: chat
+          completion_params:
+            temperature: 0.1
+        prompt_template:
+        - id: intent-system
+          role: system
+          text: '你是“一键游”的意图识别与槽位抽取 Agent，只输出 JSON。
+
+            intent 只能是 trip_plan、modify_plan、weather_query、hotel_query、transport_query、general_qa、booking、booking_confirm、memory_manage。
+
+            输出 intent、confidence、ready_for_execution、missing_fields、entities、preference_tags、requested_tools、booking_type、selected_option_ids、current_plan_id。
+
+            按意图判断必填字段，但不要用完整行程条件阻塞单项查询。weather_query 没有显式城市时允许使用设备当前定位；general_qa 直接就绪；trip_plan 才要求目的地、日期/天数、人数和预算；modify_plan
+            需要 current_plan_id 或当前会话方案；booking 需要 booking_type 和选项；booking_confirm 必须有订单草稿或 quote_id。
+
+            当前明确要求优先于历史记忆。记忆上下文：{{#memory_context_builder.memory_context#}}
+
+            当前会话检查点：{{#checkpoint_hydrator.checkpoint_context_json#}}
+
+            当用户说“上次方案”“第二天”“确认提交”时，必须结合检查点识别 modify_plan 或 booking_confirm，不允许只从本轮文本猜测。'
+        - id: intent-user
+          role: user
+          text: '{{#sys.query#}}'
+        selected: false
+        title: Agent 1 - 意图识别与槽位抽取
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 120
+      id: intent_agent
+      position:
+        x: 1380
+        y: 680
+      positionAbsolute:
+        x: 1380
+        y: 680
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 280
+    - data:
+        code: "import json\n\ndef main(query: str, intent_raw: str, memory_context: str, conversation_id: str, checkpoint_json:\
+          \ str, current_plan_json: str, booking_draft_json: str, checkpoint_version: float) -> dict:\n    raw = (intent_raw\
+          \ or '').strip().replace('```json', '').replace('```', '')\n    if '</think>' in raw:\n        raw = raw.split('</think>',\
+          \ 1)[1].strip()\n    json_start, json_end = raw.find('{'), raw.rfind('}')\n    if json_start >= 0 and json_end >=\
+          \ json_start:\n        raw = raw[json_start:json_end + 1]\n    try:\n        data = json.loads(raw)\n    except\
+          \ Exception:\n        data = {'intent':'general_qa','confidence':0.0,'ready_for_execution':False,'missing_fields':['clarify_request']}\n\
+          \n    # 对高确定性的产品指令做代码兜底，避免 LLM 偶发误分类导致调用错误工具。\n    # 复杂语义仍由意图 Agent 负责；这里只覆盖天气、预订等明显关键词。\n    text = (query or '').strip().lower()\n\
+          \    deterministic_intent = None\n    if any(word in text for word in ['确认提交', '确认下单', '确认预订', '确认购买']):\n     \
+          \   deterministic_intent = 'booking_confirm'\n    elif any(word in text for word in ['预订', '购买', '下单', '订酒店', '订票']):\n\
+          \        deterministic_intent = 'booking'\n    elif any(word in text for word in ['记住', '忘掉', '忘记我的', '旅行偏好', '旅游偏好',\
+          \ '旅行习惯']):\n        deterministic_intent = 'memory_manage'\n    elif any(word in text for word in ['修改行程', '调整行程',\
+          \ '换成', '改成', '把第']) and any(word in text for word in ['行程', '第', '上午', '下午', '晚上']):\n        deterministic_intent\
+          \ = 'modify_plan'\n    elif any(word in text for word in ['规划', '攻略', '行程', '安排']) or ('玩' in text and any(word\
+          \ in text for word in ['天', '周末'])):\n        deterministic_intent = 'trip_plan'\n    elif any(word in text for\
+          \ word in ['天气', '下雨', '温度', '气温']):\n        deterministic_intent = 'weather_query'\n    elif any(word in text\
+          \ for word in ['酒店', '住宿', '住哪里']):\n        deterministic_intent = 'hotel_query'\n    elif any(word in text for\
+          \ word in ['高铁', '火车', '飞机', '机票', '交通怎么走']):\n        deterministic_intent = 'transport_query'\n\n    if deterministic_intent:\n\
+          \        data['intent'] = deterministic_intent\n        data['confidence'] = max(float(data.get('confidence', 0)\
+          \ or 0), 0.99)\n        tool_defaults = {\n            'weather_query':['weather'],\n            'hotel_query':['hotel_search'],\n\
+          \            'transport_query':['route','train_search','flight_search'],\n            'trip_plan':['weather','intercity_transport','hotel_area','poi_candidates']\n\
+          \        }\n        if deterministic_intent in tool_defaults:\n            data['requested_tools'] = tool_defaults[deterministic_intent]\n\
+          \        data['ready_for_execution'] = deterministic_intent not in {'trip_plan', 'booking', 'booking_confirm', 'modify_plan'}\n\
+          \        data['missing_fields'] = []\n\n    def ensure_list(value):\n        if value is None:\n            return\
+          \ []\n        return value if isinstance(value, list) else [value]\n    state = {\n        'query': query,\n   \
+          \     'intent': data.get('intent', 'general_qa'),\n        'confidence': float(data.get('confidence', 0) or 0),\n\
+          \        'ready_for_execution': bool(data.get('ready_for_execution', False)),\n        'missing_fields': ensure_list(data.get('missing_fields')),\n\
+          \        'entities': data.get('entities', {}),\n        'preference_tags': ensure_list(data.get('preference_tags')),\n\
+          \        'requested_tools': ensure_list(data.get('requested_tools')),\n        'booking_type': ensure_list(data.get('booking_type')),\n\
+          \        'selected_option_ids': ensure_list(data.get('selected_option_ids')),\n        'current_plan_id': data.get('current_plan_id'),\n\
+          \        'current_plan': None,\n        'plan_version': None,\n        'quote_ids': [],\n        'tool_results':\
+          \ {},\n        'tool_errors': [],\n        'validation_errors': [],\n        'revision_count': 0,\n        'booking_draft':\
+          \ None,\n        'memory_context': memory_context,\n        'memory_write_status': 'PENDING'\n    }\n\n    try:\
+          \ persisted_plan = json.loads(current_plan_json or '{}')\n    except Exception: persisted_plan = {}\n    try: persisted_draft\
+          \ = json.loads(booking_draft_json or '{}')\n    except Exception: persisted_draft = {}\n    state['thread_id'] =\
+          \ conversation_id\n    state['checkpoint_version'] = int(checkpoint_version or 0)\n    state['checkpoint_json']\
+          \ = checkpoint_json or '{}'\n    state['current_plan_json'] = current_plan_json or '{}'\n    state['booking_draft_json']\
+          \ = booking_draft_json or '{}'\n    if persisted_plan:\n        state['current_plan_id'] = persisted_plan.get('plan_id')\
+          \ or state.get('current_plan_id')\n        state['plan_version'] = persisted_plan.get('plan_version')\n    if persisted_draft:\n\
+          \        state['booking_draft_id'] = persisted_draft.get('draft_id')\n        state['booking_draft_status'] = persisted_draft.get('status')\n\
+          \        state['quote_ids'] = persisted_draft.get('quote_ids') or state.get('quote_ids') or []\n    return {'intent':state['intent'],\
+          \ 'ready':'true' if state['ready_for_execution'] else 'false', 'state':state, 'state_json':json.dumps(state,ensure_ascii=False)}"
+        code_language: python3
+        desc: 将 LLM 输出规范化为共享 TravelState，对应 LangGraph TypedDict/Pydantic State。
+        outputs:
+          intent:
+            children: null
+            type: string
+          ready:
+            children: null
+            type: string
+          state:
+            children: null
+            type: object
+          state_json:
+            children: null
+            type: string
+        selected: false
+        title: 状态归一化 / TravelState
+        type: code
+        variables:
+        - value_selector:
+          - sys
+          - query
+          variable: query
+        - value_selector:
+          - intent_agent
+          - text
+          variable: intent_raw
+        - value_selector:
+          - memory_context_builder
+          - memory_context
+          variable: memory_context
+        - variable: conversation_id
+          value_selector:
+          - sys
+          - conversation_id
+        - variable: checkpoint_json
+          value_selector:
+          - conversation
+          - travel_checkpoint_json
+        - variable: current_plan_json
+          value_selector:
+          - conversation
+          - current_plan_json
+        - variable: booking_draft_json
+          value_selector:
+          - conversation
+          - booking_draft_json
+        - variable: checkpoint_version
+          value_selector:
+          - conversation
+          - checkpoint_version
+      height: 110
+      id: state_normalizer
+      position:
+        x: 1720
+        y: 680
+      positionAbsolute:
+        x: 1720
+        y: 680
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 280
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: 从本轮用户明确表达中提取长期记忆候选，不直接写库。
+        memory:
+          query_prompt_template: '{{#sys.query#}}'
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: true
+            size: 20
+        model:
+          provider: langgenius/deepseek/deepseek
+          name: deepseek-v4-flash
+          mode: chat
+          completion_params:
+            temperature: 0.1
+        prompt_template:
+        - id: memory-candidate-system
+          role: system
+          text: '你是长期旅游记忆提取 Agent，只输出 JSON，不要 Markdown。
+
+            输出格式：{"operations":[{"action":"upsert|delete","category":"pace|budget_style|food|transport|hotel|activity|avoidance|tag","key":"...","value":"...","confidence":0.0,"evidence":"用户原话","source":"explicit|repeated"}]}。
+
+            只保存跨多次旅行仍有价值的稳定习惯，例如“我通常喜欢睡到自然醒”“我不吃辣”“以后优先高铁”。
+
+            一次性的目的地、日期、人数和本次预算不是长期记忆；“这次想住五星酒店”不能推断为永久偏好。
+
+            用户说“忘掉、不再、改成”时生成 delete 或覆盖操作。
+
+            禁止保存身份证、手机号、支付信息、健康等敏感信息。没有可靠候选时 operations 为空数组。
+
+            当前请求：{{#sys.query#}}
+
+            当前状态：{{#state_normalizer.state_json#}}
+
+            已有记忆：{{#memory_context_builder.memory_context#}}'
+        selected: false
+        title: 记忆 4 - 长期记忆候选提取
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 120
+      id: memory_candidate_agent
+      position:
+        x: 2060
+        y: 680
+      positionAbsolute:
+        x: 2060
+        y: 680
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        code: "import json\n\nALLOWED = {'pace', 'budget_style', 'food', 'transport', 'hotel', 'activity', 'avoidance', 'tag'}\n\
+          \ndef main(candidate_raw: str) -> dict:\n    raw = (candidate_raw or '').strip().replace('```json', '').replace('```',\
+          \ '')\n    try:\n        data = json.loads(raw)\n    except Exception:\n        data = {'operations': []}\n    accepted\
+          \ = []\n    rejected = []\n    for item in data.get('operations', []):\n        action = item.get('action')\n  \
+          \      category = item.get('category')\n        confidence = float(item.get('confidence', 0) or 0)\n        evidence\
+          \ = str(item.get('evidence', '')).strip()\n        sensitive = any(word in evidence for word in ['身份证', '银行卡', '密码',\
+          \ '手机号', '支付'])\n        valid = action in {'upsert', 'delete'} and category in ALLOWED and evidence and not sensitive\n\
+          \        if action == 'upsert':\n            valid = valid and confidence >= 0.85 and item.get('source') in {'explicit',\
+          \ 'repeated'}\n        if valid:\n            accepted.append(item)\n        else:\n            rejected.append(item)\n\
+          \    result = {'accepted': accepted, 'rejected': rejected, 'requires_user_confirmation': False}\n    return {\n\
+          \        'accepted_count': len(accepted),\n        'memory_operations_json': json.dumps(result, ensure_ascii=False)\n\
+          \    }"
+        code_language: python3
+        desc: 只允许明确或重复出现的稳定偏好进入长期记忆，并过滤敏感信息和一次性需求。
+        outputs:
+          accepted_count:
+            children: null
+            type: number
+          memory_operations_json:
+            children: null
+            type: string
+        selected: false
+        title: 记忆 5 - 写入策略与隐私校验
+        type: code
+        variables:
+        - value_selector:
+          - memory_candidate_agent
+          - text
+          variable: candidate_raw
+      height: 120
+      id: memory_policy_guard
+      position:
+        x: 2420
+        y: 680
+      positionAbsolute:
+        x: 2420
+        y: 680
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        code: "import json\n\ndef main(user_id: str, memory_operations_json: str) -> dict:\n    try:\n        operations =\
+          \ json.loads(memory_operations_json or '{}').get('accepted', [])\n    except Exception:\n        operations = []\n\
+          \    status = 'NO_CHANGE' if not operations else 'MOCK_WRITTEN'\n    return {\n        'write_status': status,\n\
+          \        'operation_count': len(operations),\n        'memory_patch': {'memory_write_status':status, 'memory_operations':operations},\n\
+          \        'data_mode':'MOCK',\n        'upsert_endpoint':'MOCK /tools/memory/profile/upsert',\n        'delete_endpoint':'MOCK\
+          \ /tools/memory/profile/item/{memory_id}'\n    }"
+        code_language: python3
+        desc: 长期记忆写入/删除接口占位。不会在原型中真正修改用户数据。
+        outputs:
+          delete_endpoint:
+            children: null
+            type: string
+          operation_count:
+            children: null
+            type: number
+          upsert_endpoint:
+            children: null
+            type: string
+          write_status:
+            children: null
+            type: string
+          memory_patch:
+            children: null
+            type: object
+          data_mode:
+            children: null
+            type: string
+        selected: false
+        title: 记忆 6 - 长期记忆写入
+        type: code
+        variables:
+        - value_selector:
+          - sys
+          - user_id
+          variable: user_id
+        - value_selector:
+          - memory_policy_guard
+          - memory_operations_json
+          variable: memory_operations_json
+      height: 120
+      id: long_memory_writer
+      position:
+        x: 2780
+        y: 680
+      positionAbsolute:
+        x: 2780
+        y: 680
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: 只追问必要信息，不一次展示长问卷。
+        memory:
+          query_prompt_template: '{{#sys.query#}}'
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: true
+            size: 20
+        model:
+          provider: langgenius/deepseek/deepseek
+          name: deepseek-v4-flash
+          mode: chat
+          completion_params:
+            temperature: 0.1
+        prompt_template:
+        - id: clarification-system
+          role: system
+          text: '你是偏好收集 Agent。根据 TravelState 先复述已知信息，再最多追问3个缺失字段。
+
+            同时给出2-4个“初步旅行标签”，明确允许用户修改。不要生成完整行程。
+
+            TravelState：{{#state_normalizer.state_json#}}
+
+            长期画像：{{#memory_context_builder.memory_context#}}'
+        selected: false
+        title: Agent 2 - 偏好补全与追问
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 110
+      id: clarification_agent
+      position:
+        x: 1400
+        y: 40
+      positionAbsolute:
+        x: 1400
+        y: 40
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 280
+    - data:
+        answer: '{{#clarification_agent.text#}}'
+        desc: 等待用户下一轮补充，聊天记忆会带回总控节点。
+        selected: false
+        title: 回复并等待用户补充
+        type: answer
+        variables: []
+      height: 100
+      id: clarification_answer
+      position:
+        x: 1740
+        y: 40
+      positionAbsolute:
+        x: 1740
+        y: 40
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 280
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: 回答用户查看、增加、修改或删除旅游偏好的请求。
+        memory:
+          query_prompt_template: '{{#sys.query#}}'
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: true
+            size: 20
+        model:
+          provider: langgenius/deepseek/deepseek
+          name: deepseek-v4-flash
+          mode: chat
+          completion_params:
+            temperature: 0.1
+        prompt_template:
+        - id: memory-management-system
+          role: system
+          text: '你是用户旅游记忆管理 Agent。向用户简洁说明识别到的偏好新增、修改、删除或查询结果。
+
+            当前为 Mock 演示模式：写入状态为 MOCK_WRITTEN 时，说明“演示记忆已更新”，同时明确不会永久保存到真实数据库。
+
+            用户可以随时说“查看我的旅行偏好”“忘掉我喜欢早起”“以后优先高铁”。
+
+            已有画像：{{#memory_context_builder.memory_context#}}
+
+            记忆操作：{{#memory_policy_guard.memory_operations_json#}}
+
+            写入状态：{{#long_memory_writer.write_status#}}'
+        selected: false
+        title: 记忆 7 - 用户记忆管理
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 120
+      id: memory_management_agent
+      position:
+        x: 3160
+        y: 180
+      positionAbsolute:
+        x: 3160
+        y: 180
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        answer: '{{#memory_management_agent.text#}}'
+        desc: 记忆查看、修改和删除反馈。
+        selected: false
+        title: 回复 - 记忆管理结果
+        type: answer
+        variables: []
+      height: 100
+      id: memory_management_answer
+      position:
+        x: 3520
+        y: 180
+      positionAbsolute:
+        x: 3520
+        y: 180
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 280
+    - data:
+        code: "def main(state: dict, memory_patch: dict) -> dict:\n    merged = dict(state or {})\n    merged.update(memory_patch\
+          \ or {})\n    return {'state':merged}"
+        code_language: python3
+        desc: 将记忆节点的增量补丁合并进 TravelState。
+        outputs:
+          state:
+            children: null
+            type: object
+        selected: false
+        title: 结构化状态合并 / State Reducer
+        type: code
+        variables:
+        - variable: state
+          value_selector:
+          - state_normalizer
+          - state
+        - variable: memory_patch
+          value_selector:
+          - long_memory_writer
+          - memory_patch
+      height: 120
+      id: pre_route_state
+      position:
+        x: 3100
+        y: 680
+      positionAbsolute:
+        x: 3100
+        y: 680
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        cases:
+        - case_id: memory_manage
+          conditions:
+          - comparison_operator: is
+            id: condition-memory_manage
+            value: memory_manage
+            varType: string
+            variable_selector:
+            - state_normalizer
+            - intent
+          id: memory_manage
+          logical_operator: and
+        - case_id: booking_confirm
+          conditions:
+          - comparison_operator: is
+            id: condition-booking_confirm
+            value: booking_confirm
+            varType: string
+            variable_selector:
+            - state_normalizer
+            - intent
+          id: booking_confirm
+          logical_operator: and
+        - case_id: booking
+          conditions:
+          - comparison_operator: is
+            id: condition-booking
+            value: booking
+            varType: string
+            variable_selector:
+            - state_normalizer
+            - intent
+          id: booking
+          logical_operator: and
+        desc: 总控路由 / Supervisor v2
+        selected: false
+        title: 总控路由 / Supervisor v2
+        type: if-else
+      height: 245
+      id: supervisor
+      position:
+        x: 3440
+        y: 650
+      positionAbsolute:
+        x: 3440
+        y: 650
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        code: "def main(state: dict) -> dict:\n    intent = (state or {}).get('intent', 'general_qa')\n    requested = list(dict.fromkeys((state\
+          \ or {}).get('requested_tools') or []))\n    defaults = {\n        'weather_query':['weather'], 'hotel_query':['hotel_search'],\n\
+          \        'transport_query':['route','train_search','flight_search'],\n        'general_qa':['poi_rag'],\n      \
+          \  'trip_plan':['weather','intercity_transport','hotel_area','poi_candidates'],\n        'modify_plan':[]\n    }\n\
+          \    selected = requested or defaults.get(intent, [])\n    if intent == 'trip_plan':\n        phase1 = defaults['trip_plan']\n\
+          \        selected = list(dict.fromkeys(phase1 + selected))\n    else:\n        phase1 = selected\n    return {'intent':intent,\
+          \ 'selected_tools':selected, 'phase1_tools':phase1}"
+        code_language: python3
+        desc: 依据 intent 和 requested_tools 生成分阶段工具计划，不执行无关工具。
+        outputs:
+          intent:
+            children: null
+            type: string
+          selected_tools:
+            children: null
+            type: array[string]
+          phase1_tools:
+            children: null
+            type: array[string]
+        selected: false
+        title: ToolSelector / 精确工具选择
+        type: code
+        variables:
+        - variable: state
+          value_selector:
+          - pre_route_state
+          - state
+      height: 120
+      id: tool_selector
+      position:
+        x: 3800
+        y: 680
+      positionAbsolute:
+        x: 3800
+        y: 680
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        cases:
+        - case_id: trip_plan
+          conditions:
+          - comparison_operator: is
+            id: condition-trip_plan
+            value: trip_plan
+            varType: string
+            variable_selector:
+            - tool_selector
+            - intent
+          id: trip_plan
+          logical_operator: and
+        - case_id: modify_plan
+          conditions:
+          - comparison_operator: is
+            id: condition-modify_plan
+            value: modify_plan
+            varType: string
+            variable_selector:
+            - tool_selector
+            - intent
+          id: modify_plan
+          logical_operator: and
+        desc: 任务类型路由
+        selected: false
+        title: 任务类型路由
+        type: if-else
+      height: 190
+      id: task_router
+      position:
+        x: 4140
+        y: 680
+      positionAbsolute:
+        x: 4140
+        y: 680
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        code: "import json\n\ndef main(state: dict) -> dict:\n    state = state or {}\n    intent = state.get('intent', 'general_qa')\n\
+          \    entities = dict(state.get('entities') or {})\n    try:\n        memory = json.loads(state.get('memory_context')\
+          \ or '{}')\n    except Exception:\n        memory = {}\n    profile = memory.get('long_term_profile') or {}\n  \
+          \  location = (entities.get('location') or entities.get('city') or entities.get('destination')\n               \
+          \ or entities.get('current_city') or profile.get('current_city') or profile.get('home_city'))\n    location_source\
+          \ = 'context'\n    missing = []\n    can_execute = True\n    if intent in {'weather_query', 'hotel_query'} and not\
+          \ location:\n        # 正式小程序由前端 wx.getLocation/城市选择器注入 current_city。\n        location = 'DEVICE_CURRENT_CITY'\n\
+          \        location_source = 'device_location'\n    if intent == 'transport_query':\n        departure = entities.get('departure')\
+          \ or location or 'DEVICE_CURRENT_CITY'\n        destination = entities.get('destination')\n        entities['departure']\
+          \ = departure\n        if not destination:\n            missing.append('destination')\n            can_execute =\
+          \ False\n    if location:\n        entities['resolved_location'] = location\n    resolved = {\n        'intent':\
+          \ intent,\n        'entities': entities,\n        'location': location,\n        'location_source': location_source,\n\
+          \        'missing_fields': missing,\n        'can_execute': can_execute\n    }\n    return {'can_execute':'true'\
+          \ if can_execute else 'false', 'resolved_context':resolved}"
+        code_language: python3
+        desc: 按当前请求、会话、画像和设备定位解析查询槽位。
+        outputs:
+          can_execute:
+            children: null
+            type: string
+          resolved_context:
+            children: null
+            type: object
+        selected: false
+        title: 单项查询槽位解析 / LocationResolver
+        type: code
+        variables:
+        - variable: state
+          value_selector:
+          - pre_route_state
+          - state
+      height: 120
+      id: query_slot_resolver
+      position:
+        x: 4500
+        y: 80
+      positionAbsolute:
+        x: 4500
+        y: 80
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        cases:
+        - case_id: execute
+          conditions:
+          - comparison_operator: is
+            id: condition-execute
+            value: 'true'
+            varType: string
+            variable_selector:
+            - query_slot_resolver
+            - can_execute
+          id: execute
+          logical_operator: and
+        desc: 单项查询专用槽位守卫
+        selected: false
+        title: 单项查询专用槽位守卫
+        type: if-else
+      height: 180
+      id: query_readiness_router
+      position:
+        x: 4860
+        y: 80
+      positionAbsolute:
+        x: 4860
+        y: 80
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        code: "import json\ndef main(state: dict, selected_tools: list, resolved_context: dict) -> dict:\n    location=(resolved_context\
+          \ or {}).get('location')\n    city='成都' if not location or location == 'DEVICE_CURRENT_CITY' else location\n   \
+          \ mock_data = {\n        'weather': {\n            'city':city, 'observed_at':'2026-07-15 12:00', 'weather':'多云',\n\
+          \            'temperature':28, 'apparent_temperature':30, 'humidity':72,\n            'forecast':[{'date':'今天','weather':'多云转阵雨','min':24,'max':31},\
+          \ {'date':'明天','weather':'小雨','min':23,'max':29}]\n        },\n        'hotel_search': {\n            'city':city,\n\
+          \            'hotels':[\n                {'option_id':'HOTEL-CD-001','name':'春熙路轻居酒店','area':'春熙路','nightly_price':458,'rating':4.7,'quote_id':'HQ-001'},\n\
+          \                {'option_id':'HOTEL-CD-002','name':'宽窄巷子漫居酒店','area':'宽窄巷子','nightly_price':389,'rating':4.6,'quote_id':'HQ-002'}\n\
+          \            ]\n        },\n        'route': {'origin':'当前位置','destination':city,'distance_km':12.6,'duration_minutes':35,'mode':'地铁+步行'},\n\
+          \        'train_search': {'trains':[{'option_id':'TRAIN-G89','train_no':'G89','departure':'08:00','arrival':'12:18','duration_minutes':258,'second_class_price':263,'quote_id':'TQ-G89'}]},\n\
+          \        'flight_search': {'flights':[{'option_id':'FLIGHT-MU2801','flight_no':'MU2801','departure':'09:10','arrival':'11:45','price':720,'quote_id':'FQ-MU2801'}]},\n\
+          \        'poi_rag': {\n            'spots':[{'poi_id':'POI-PANDA','name':'成都大熊猫繁育研究基地','tags':['熊猫','亲子']},{'poi_id':'POI-KZ','name':'宽窄巷子','tags':['街区','美食']}],\n\
+          \            'foods':['火锅','担担面','钟水饺'], 'source_titles':['成都景点攻略演示库','成都美食演示库']\n        }\n    }\n    results\
+          \ = {}\n    for tool in selected_tools or []:\n        results[tool] = {\n            'status':'MOCK_SUCCESS', 'data_mode':'MOCK',\
+          \ 'tool':tool,\n            'request_context':resolved_context, 'data':mock_data.get(tool, {'message':'演示数据'})\n\
+          \        }\n    errors=[]\n    query=(state or {}).get('query','')\n    if selected_tools and ('模拟工具失败' in query\
+          \ or '模拟天气接口失败' in query or '模拟不可恢复错误' in query):\n        failed_tool=selected_tools[0]\n        retryable='模拟不可恢复错误'\
+          \ not in query\n        results[failed_tool]={'status':'MOCK_FAILED','data_mode':'MOCK','tool':failed_tool,'request_context':resolved_context,'data':{}}\n\
+          \        errors.append({'tool':failed_tool,'error_code':'MOCK_TIMEOUT' if retryable else 'MOCK_AUTH_ERROR','retryable':retryable,'attempt':1,'fallback_available':failed_tool\
+          \ in ['weather','hotel_search','poi_rag']})\n    payload = {'tool_results':results,'tool_errors':errors}\n    return\
+          \ {'query_result_json':json.dumps(payload,ensure_ascii=False)}"
+        code_language: python3
+        desc: 仅执行 ToolSelector 选中的查询工具；深层结果以 JSON 字符串跨节点传输。
+        outputs:
+          query_result_json:
+            children: null
+            type: string
+        selected: false
+        title: 单项查询执行器
+        type: code
+        variables:
+        - variable: state
+          value_selector:
+          - pre_route_state
+          - state
+        - variable: selected_tools
+          value_selector:
+          - tool_selector
+          - selected_tools
+        - variable: resolved_context
+          value_selector:
+          - query_slot_resolver
+          - resolved_context
+      height: 120
+      id: query_executor
+      position:
+        x: 5220
+        y: 80
+      positionAbsolute:
+        x: 5220
+        y: 80
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: 天气、酒店、交通或普通问答只整理对应结果，不生成完整行程。
+        memory:
+          query_prompt_template: '{{#sys.query#}}'
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: true
+            size: 20
+        model:
+          provider: langgenius/deepseek/deepseek
+          name: deepseek-v4-flash
+          mode: chat
+          completion_params:
+            temperature: 0.1
+        prompt_template:
+        - id: query_presenter-system
+          role: system
+          text: '根据用户意图和工具结果直接回答问题，不要强行生成多日行程。
+
+            意图：{{#tool_selector.intent#}}
+
+            工具结果：{{#query_executor.query_result_json#}}
+
+            所有工具结果均为 MOCK 演示数据。回答开头简短标注“演示数据”，然后像真实产品一样整理结果，不要说接口待接入。'
+        selected: false
+        title: 单项查询结果整理 Agent
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 120
+      id: query_presenter
+      position:
+        x: 5580
+        y: 80
+      positionAbsolute:
+        x: 5580
+        y: 80
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 310
+    - data:
+        answer: '{{#query_presenter.text#}}'
+        desc: 回复 - 单项查询
+        selected: false
+        title: 回复 - 单项查询
+        type: answer
+        variables: []
+      height: 100
+      id: query_answer
+      position:
+        x: 5940
+        y: 80
+      positionAbsolute:
+        x: 5940
+        y: 80
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 280
+    - data:
+        code: "def main(state: dict) -> dict:\n    entities=(state or {}).get('entities') or {}\n    missing=[]\n    if not\
+          \ entities.get('destination'): missing.append('destination')\n    if not (entities.get('days') or entities.get('start_date')):\
+          \ missing.append('days_or_start_date')\n    if not entities.get('people'): missing.append('people')\n    if entities.get('budget')\
+          \ is None: missing.append('budget')\n    return {'can_execute':'true' if not missing else 'false','missing_fields':missing}"
+        code_language: python3
+        desc: 只有 trip_plan 才检查完整规划所需字段。
+        outputs:
+          can_execute:
+            children: null
+            type: string
+          missing_fields:
+            children: null
+            type: array[string]
+        selected: false
+        title: 完整行程专用必填字段守卫
+        type: code
+        variables:
+        - variable: state
+          value_selector:
+          - pre_route_state
+          - state
+      height: 120
+      id: plan_slot_guard
+      position:
+        x: 4500
+        y: 520
+      positionAbsolute:
+        x: 4500
+        y: 520
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        cases:
+        - case_id: execute
+          conditions:
+          - comparison_operator: is
+            id: condition-execute
+            value: 'true'
+            varType: string
+            variable_selector:
+            - plan_slot_guard
+            - can_execute
+          id: execute
+          logical_operator: and
+        desc: 完整行程必填字段路由
+        selected: false
+        title: 完整行程必填字段路由
+        type: if-else
+      height: 180
+      id: plan_readiness_router
+      position:
+        x: 4860
+        y: 520
+      positionAbsolute:
+        x: 4860
+        y: 520
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        code: "import json\ndef main(state: dict, phase1_tools: list) -> dict:\n    destination=((state or {}).get('entities')\
+          \ or {}).get('destination') or '成都'\n    dataset={\n        'weather':{'city':destination,'summary':'多云转阵雨','min_temperature':24,'max_temperature':31,'rain_probability':60},\n\
+          \        'intercity_transport':{\n            'options':[\n                {'option_id':'TRAIN-G89','type':'train','name':'G89','departure':'08:00','arrival':'12:18','price':263,'quote_id':'TQ-G89'},\n\
+          \                {'option_id':'FLIGHT-MU2801','type':'flight','name':'MU2801','departure':'09:10','arrival':'11:45','price':720,'quote_id':'FQ-MU2801'}\n\
+          \            ]\n        },\n        'hotel_area':{\n            'recommended_area':'春熙路','reason':'餐饮密集且地铁换乘方便',\n\
+          \            'hotels':[{'option_id':'HOTEL-CD-001','name':'春熙路轻居酒店','nightly_price':458,'rating':4.7,'quote_id':'HQ-001'}]\n\
+          \        },\n        'poi_candidates':{\n            'items':[\n                {'poi_id':'POI-PANDA','name':'成都大熊猫繁育研究基地','longitude':104.145,'latitude':30.739,'duration_minutes':240,'ticket_price':55},\n\
+          \                {'poi_id':'POI-KZ','name':'宽窄巷子','longitude':104.059,'latitude':30.670,'duration_minutes':120,'ticket_price':0},\n\
+          \                {'poi_id':'POI-DU','name':'杜甫草堂','longitude':104.028,'latitude':30.660,'duration_minutes':150,'ticket_price':50},\n\
+          \                {'poi_id':'POI-JL','name':'锦里古街','longitude':104.049,'latitude':30.645,'duration_minutes':120,'ticket_price':0}\n\
+          \            ]\n        }\n    }\n    results={tool:{'status':'MOCK_SUCCESS','data_mode':'MOCK','data':dataset.get(tool,{})}\
+          \ for tool in (phase1_tools or [])}\n    payload={'tool_results':{'phase1':results},'tool_errors':[]}\n    return\
+          \ {'phase1_results_json':json.dumps(results,ensure_ascii=False),'state_patch_json':json.dumps(payload,ensure_ascii=False)}"
+        code_language: python3
+        desc: 并行执行天气、城际交通、酒店区域和景点候选检索；深层结果使用 JSON 字符串。
+        outputs:
+          phase1_results_json:
+            children: null
+            type: string
+          state_patch_json:
+            children: null
+            type: string
+        selected: false
+        title: 规划阶段 1 - 候选检索
+        type: code
+        variables:
+        - variable: state
+          value_selector:
+          - pre_route_state
+          - state
+        - variable: phase1_tools
+          value_selector:
+          - tool_selector
+          - phase1_tools
+      height: 120
+      id: phase1_research
+      position:
+        x: 5220
+        y: 520
+      positionAbsolute:
+        x: 5220
+        y: 520
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: 先选候选项，再为第二阶段提供 poi_id 和 destinations。
+        memory:
+          query_prompt_template: '{{#sys.query#}}'
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: false
+            size: 20
+        model:
+          provider: langgenius/deepseek/deepseek
+          name: deepseek-v4-pro
+          mode: chat
+          completion_params:
+            temperature: 0.1
+        prompt_template:
+        - id: candidate_selector-system
+          role: system
+          text: '只输出 JSON，字段包含 selected_pois（每项必须有 poi_id、visit_date、estimated_duration）、hotel_area、intercity_option、destinations。没有真实日期时
+            visit_date 使用 DAY_1、DAY_2。
+
+            不得在没有 poi_id 时请求门票，不得在没有 destinations 时请求路线矩阵。
+
+            TravelState：{{#pre_route_state.state#}}
+
+            第一阶段结果：{{#phase1_recovery_audit.phase1_results_json#}}
+
+            恢复轨迹：{{#phase1_recovery_audit.recovery_trace_json#}}'
+        selected: false
+        title: 候选景点与住宿区域选择 Agent
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 120
+      id: candidate_selector
+      position:
+        x: 4860
+        y: 520
+      positionAbsolute:
+        x: 4860
+        y: 520
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 310
+    - data:
+        code: "import json\ndef main(candidate_raw: str, state: dict) -> dict:\n    raw=(candidate_raw or '').replace('```json','').replace('```','').strip()\n\
+          \    if '</think>' in raw: raw=raw.split('</think>',1)[1].strip()\n    json_start,json_end=raw.find('{'),raw.rfind('}')\n\
+          \    if json_start>=0 and json_end>=json_start: raw=raw[json_start:json_end+1]\n    try: candidates=json.loads(raw)\n\
+          \    except Exception: candidates={}\n    pois=candidates.get('selected_pois',[])\n    destinations=candidates.get('destinations',[])\n\
+          \    errors=[]\n    if not pois: errors.append('NO_SELECTED_POI')\n    if not destinations: errors.append('NO_ROUTE_DESTINATIONS')\n\
+          \    ticket_prices={'POI-PANDA':55,'POI-KZ':0,'POI-DU':50,'POI-JL':0}\n    opening={'POI-PANDA':'07:30-18:00','POI-KZ':'全天开放','POI-DU':'09:00-18:00','POI-JL':'全天开放'}\n\
+          \    details={\n        'route_matrix':{'status':'MOCK_SUCCESS','data_mode':'MOCK','destinations':destinations,'legs':[{'from':'春熙路','to':'成都大熊猫繁育研究基地','distance_km':14.2,'duration_minutes':42},{'from':'杜甫草堂','to':'宽窄巷子','distance_km':3.6,'duration_minutes':18}]},\n\
+          \        'opening_hours':{'status':'MOCK_SUCCESS','data_mode':'MOCK','items':[{'poi_id':p.get('poi_id'),'hours':opening.get(p.get('poi_id'),'09:00-18:00')}\
+          \ for p in pois]},\n        'ticket_quotes':{'status':'MOCK_SUCCESS','data_mode':'MOCK','items':[{'poi_id':p.get('poi_id'),'visit_date':p.get('visit_date'),'price':ticket_prices.get(p.get('poi_id'),0),'available':True,'quote_id':'MOCK-TICKET-'+str(p.get('poi_id'))}\
+          \ for p in pois]}\n    }\n    patch={'tool_results':{'phase2':details},'tool_errors':errors}\n    return {'candidates_json':json.dumps(candidates,ensure_ascii=False),'phase2_results_json':json.dumps(details,ensure_ascii=False),'state_patch_json':json.dumps(patch,ensure_ascii=False)}"
+        code_language: python3
+        desc: 使用候选 poi_id 查询路线矩阵、开放时间和门票余量。
+        outputs:
+          candidates_json:
+            children: null
+            type: string
+          phase2_results_json:
+            children: null
+            type: string
+          state_patch_json:
+            children: null
+            type: string
+        selected: false
+        title: 规划阶段 2 - 精查与路线矩阵
+        type: code
+        variables:
+        - variable: candidate_raw
+          value_selector:
+          - candidate_selector
+          - text
+        - variable: state
+          value_selector:
+          - pre_route_state
+          - state
+      height: 120
+      id: phase2_research
+      position:
+        x: 5220
+        y: 520
+      positionAbsolute:
+        x: 5220
+        y: 520
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        code: "import json\ndef main(state: dict, phase1_patch_json: str, phase2_patch_json: str, candidates_json: str) ->\
+          \ dict:\n    merged=dict(state or {})\n    try: phase1_patch=json.loads(phase1_patch_json or '{}')\n    except Exception:\
+          \ phase1_patch={}\n    try: phase2_patch=json.loads(phase2_patch_json or '{}')\n    except Exception: phase2_patch={}\n\
+          \    try: candidates=json.loads(candidates_json or '{}')\n    except Exception: candidates={}\n    tool_results=dict(merged.get('tool_results')\
+          \ or {})\n    tool_results.update((phase1_patch or {}).get('tool_results') or {})\n    tool_results.update((phase2_patch\
+          \ or {}).get('tool_results') or {})\n    merged['tool_results']=tool_results\n    merged['tool_errors']=list(dict.fromkeys((merged.get('tool_errors')\
+          \ or []) + ((phase1_patch or {}).get('tool_errors') or []) + ((phase2_patch or {}).get('tool_errors') or [])))\n\
+          \    merged['selected_candidates']=candidates or {}\n    return {'planning_state_json':json.dumps(merged,ensure_ascii=False)}"
+        code_language: python3
+        desc: 将两阶段工具补丁和候选项合并为结构化规划状态。
+        outputs:
+          planning_state_json:
+            children: null
+            type: string
+        selected: false
+        title: 规划状态合并 / State Reducer
+        type: code
+        variables:
+        - variable: state
+          value_selector:
+          - pre_route_state
+          - state
+        - variable: phase1_patch_json
+          value_selector:
+          - phase1_research
+          - state_patch_json
+        - variable: phase2_patch_json
+          value_selector:
+          - phase2_research
+          - state_patch_json
+        - variable: candidates_json
+          value_selector:
+          - phase2_research
+          - candidates_json
+      height: 120
+      id: planning_state_reducer
+      position:
+        x: 5580
+        y: 520
+      positionAbsolute:
+        x: 5580
+        y: 520
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: 仅 trip_plan 进入，使用两阶段研究结果生成结构化行程。
+        memory:
+          query_prompt_template: '{{#sys.query#}}'
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: false
+            size: 20
+        model:
+          provider: langgenius/deepseek/deepseek
+          name: deepseek-v4-pro
+          mode: chat
+          completion_params:
+            temperature: 0.1
+        prompt_template:
+        - id: planner-system
+          role: system
+          text: '只输出 JSON 行程，包含 data_mode="MOCK"、plan_id="MOCK-PLAN-001"、plan_version、hotel_nights、days、selected_hotels、selected_transport、selected_tickets、quote_ids、budget_items、total_cost。
+
+            days 中每个项目包含 day_id、item_id、visit_start、visit_end、travel_minutes、visit_minutes、available_minutes。使用给定 Mock 价格，不要再生成其他价格。规划状态：{{#planning_state_reducer.planning_state_json#}}'
+        selected: false
+        title: 完整行程规划 Agent
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 120
+      id: planner
+      position:
+        x: 5940
+        y: 520
+      positionAbsolute:
+        x: 5940
+        y: 520
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 310
+    - data:
+        code: "import json\ndef main(plan_raw: str, planning_state_json: str) -> dict:\n    raw=(plan_raw or '').replace('```json','').replace('```','').strip()\n\
+          \    if '</think>' in raw: raw=raw.split('</think>',1)[1].strip()\n    json_start,json_end=raw.find('{'),raw.rfind('}')\n\
+          \    if json_start>=0 and json_end>=json_start: raw=raw[json_start:json_end+1]\n    errors=[]\n    try: plan=json.loads(raw)\n\
+          \    except Exception: plan={}; errors.append('PLAN_NOT_JSON')\n    try: state=json.loads(planning_state_json or\
+          \ '{}')\n    except Exception: state={}\n    days=plan.get('days') or []\n    expected=(state or {}).get('entities',{}).get('days')\n\
+          \    if isinstance(expected,int) and len(days)!=expected: errors.append('DAY_COUNT_MISMATCH')\n    nights=plan.get('hotel_nights')\n\
+          \    if isinstance(expected,int) and nights is not None and nights!=max(expected-1,0): errors.append('HOTEL_NIGHTS_MISMATCH')\n\
+          \    budget=(state or {}).get('entities',{}).get('budget')\n    total=plan.get('total_cost')\n    if isinstance(budget,(int,float))\
+          \ and isinstance(total,(int,float)) and total>budget: errors.append('BUDGET_EXCEEDED')\n    if not plan.get('plan_id'):\
+          \ errors.append('MISSING_PLAN_ID')\n    for day in days:\n        for item in day.get('items',[]) if isinstance(day,dict)\
+          \ else []:\n            available=item.get('available_minutes')\n            required=(item.get('travel_minutes')\
+          \ or 0)+(item.get('visit_minutes') or 0)\n            if isinstance(available,(int,float)) and required>available:\
+          \ errors.append('TIME_WINDOW_EXCEEDED')\n            start=item.get('visit_start'); end=item.get('visit_end')\n\
+          \            if start and end and start>=end: errors.append('INVALID_VISIT_TIME')\n    return {'hard_pass':'true'\
+          \ if not errors else 'false','validation_errors':errors,'plan_json':json.dumps(plan,ensure_ascii=False)}"
+        code_language: python3
+        desc: 用代码检查天数、住宿晚数、预算、时间和必要标识。
+        outputs:
+          hard_pass:
+            children: null
+            type: string
+          validation_errors:
+            children: null
+            type: array[string]
+          plan_json:
+            children: null
+            type: string
+        selected: false
+        title: 代码硬校验
+        type: code
+        variables:
+        - variable: plan_raw
+          value_selector:
+          - planner
+          - text
+        - variable: planning_state_json
+          value_selector:
+          - planning_state_reducer
+          - planning_state_json
+      height: 120
+      id: hard_validator
+      position:
+        x: 6300
+        y: 520
+      positionAbsolute:
+        x: 6300
+        y: 520
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: 只判断节奏、体验、偏好匹配和表达质量。
+        memory:
+          query_prompt_template: '{{#sys.query#}}'
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: false
+            size: 20
+        model:
+          provider: langgenius/deepseek/deepseek
+          name: deepseek-v4-pro
+          mode: chat
+          completion_params:
+            temperature: 0.1
+        prompt_template:
+        - id: soft_reviewer-system
+          role: system
+          text: '只输出 JSON：{"verdict":"pass|revise","issues":[],"suggestions":[]}。
+
+            代码硬校验错误：{{#hard_validator.validation_errors#}}
+
+            行程：{{#hard_validator.plan_json#}}
+
+            判断是否太赶、是否符合偏好、体验是否均衡；不要重新计算预算和时间公式。存在任何硬错误时 verdict 必须为 revise。'
+        selected: false
+        title: LLM 软评审
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 120
+      id: soft_reviewer
+      position:
+        x: 6660
+        y: 520
+      positionAbsolute:
+        x: 6660
+        y: 520
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 310
+    - data:
+        code: "import json\ndef main(review_raw: str) -> dict:\n    raw=(review_raw or '').replace('```json','').replace('```','').strip()\n\
+          \    if '</think>' in raw: raw=raw.split('</think>',1)[1].strip()\n    json_start,json_end=raw.find('{'),raw.rfind('}')\n\
+          \    if json_start>=0 and json_end>=json_start: raw=raw[json_start:json_end+1]\n    try: data=json.loads(raw)\n\
+          \    except Exception: data={'verdict':'revise','issues':['REVIEW_NOT_JSON']}\n    return {'verdict':data.get('verdict','revise'),'review':data}"
+        code_language: python3
+        desc: 解析软评审并形成循环条件。
+        outputs:
+          verdict:
+            children: null
+            type: string
+          review:
+            children: null
+            type: object
+        selected: false
+        title: 评审结果解析
+        type: code
+        variables:
+        - variable: review_raw
+          value_selector:
+          - soft_reviewer
+          - text
+      height: 120
+      id: review_parser
+      position:
+        x: 7020
+        y: 520
+      positionAbsolute:
+        x: 7020
+        y: 520
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        cases:
+        - case_id: pass
+          conditions:
+          - comparison_operator: is
+            id: condition-pass
+            value: pass
+            varType: string
+            variable_selector:
+            - review_parser
+            - verdict
+          id: pass
+          logical_operator: and
+        desc: 自检循环路由
+        selected: false
+        title: 自检循环路由
+        type: if-else
+      height: 180
+      id: quality_router_v2
+      position:
+        x: 7380
+        y: 520
+      positionAbsolute:
+        x: 7380
+        y: 520
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        answer: '{{#planner.text#}}'
+        desc: 最终行程（校验通过）
+        selected: false
+        title: 最终行程（校验通过）
+        type: answer
+        variables: []
+      height: 100
+      id: plan_answer
+      position:
+        x: 7740
+        y: 400
+      positionAbsolute:
+        x: 7740
+        y: 400
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 280
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: 根据硬错误和软评审做一次局部修订。
+        memory:
+          query_prompt_template: '{{#sys.query#}}'
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: false
+            size: 20
+        model:
+          provider: langgenius/deepseek/deepseek
+          name: deepseek-v4-pro
+          mode: chat
+          completion_params:
+            temperature: 0.1
+        prompt_template:
+        - id: revision-system
+          role: system
+          text: '只输出修订后的完整 JSON 行程。不得删除 plan_id，plan_version 加 1。
+
+            原计划：{{#hard_validator.plan_json#}}
+
+            硬错误：{{#hard_validator.validation_errors#}}
+
+            软评审：{{#review_parser.review#}}'
+        selected: false
+        title: 行程修订 Agent
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 120
+      id: revision
+      position:
+        x: 7740
+        y: 700
+      positionAbsolute:
+        x: 7740
+        y: 700
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 310
+    - data:
+        code: "import json\ndef main(plan_raw: str, planning_state_json: str) -> dict:\n    raw=(plan_raw or '').replace('```json','').replace('```','').strip();\
+          \ errors=[]\n    if '</think>' in raw: raw=raw.split('</think>',1)[1].strip()\n    json_start,json_end=raw.find('{'),raw.rfind('}')\n\
+          \    if json_start>=0 and json_end>=json_start: raw=raw[json_start:json_end+1]\n    try: plan=json.loads(raw)\n\
+          \    except Exception: plan={}; errors.append('PLAN_NOT_JSON')\n    try: state=json.loads(planning_state_json or\
+          \ '{}')\n    except Exception: state={}\n    if not plan.get('plan_id'): errors.append('MISSING_PLAN_ID')\n    budget=(state\
+          \ or {}).get('entities',{}).get('budget'); total=plan.get('total_cost')\n    if isinstance(budget,(int,float)) and\
+          \ isinstance(total,(int,float)) and total>budget: errors.append('BUDGET_EXCEEDED')\n    days=plan.get('days') or\
+          \ []; expected=(state or {}).get('entities',{}).get('days')\n    if isinstance(expected,int) and len(days)!=expected:\
+          \ errors.append('DAY_COUNT_MISMATCH')\n    nights=plan.get('hotel_nights')\n    if isinstance(expected,int) and\
+          \ nights is not None and nights!=max(expected-1,0): errors.append('HOTEL_NIGHTS_MISMATCH')\n    for day in days:\n\
+          \        for item in day.get('items',[]) if isinstance(day,dict) else []:\n            available=item.get('available_minutes');\
+          \ required=(item.get('travel_minutes') or 0)+(item.get('visit_minutes') or 0)\n            if isinstance(available,(int,float))\
+          \ and required>available: errors.append('TIME_WINDOW_EXCEEDED')\n            if item.get('visit_start') and item.get('visit_end')\
+          \ and item['visit_start']>=item['visit_end']: errors.append('INVALID_VISIT_TIME')\n    return {'validation_errors':errors,'plan_json':json.dumps(plan,ensure_ascii=False),'revision_count':1}"
+        code_language: python3
+        desc: 修订后再次执行确定性规则，最多两轮。
+        outputs:
+          validation_errors:
+            children: null
+            type: array[string]
+          plan_json:
+            children: null
+            type: string
+          revision_count:
+            children: null
+            type: number
+        selected: false
+        title: 第二轮代码硬校验
+        type: code
+        variables:
+        - variable: plan_raw
+          value_selector:
+          - revision
+          - text
+        - variable: planning_state_json
+          value_selector:
+          - planning_state_reducer
+          - planning_state_json
+      height: 120
+      id: second_hard_validator
+      position:
+        x: 8100
+        y: 700
+      positionAbsolute:
+        x: 8100
+        y: 700
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: 结合第二轮硬校验给出最终可用性说明。
+        memory:
+          query_prompt_template: '{{#sys.query#}}'
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: false
+            size: 20
+        model:
+          provider: langgenius/deepseek/deepseek
+          name: deepseek-v4-pro
+          mode: chat
+          completion_params:
+            temperature: 0.1
+        prompt_template:
+        - id: final_reviewer-system
+          role: system
+          text: '输出最终行程及简短风险提示。不得隐藏仍存在的硬错误。
+
+            修订计划：{{#second_hard_validator.plan_json#}}
+
+            剩余硬错误：{{#second_hard_validator.validation_errors#}}'
+        selected: false
+        title: 第二轮终审
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 120
+      id: final_reviewer
+      position:
+        x: 8460
+        y: 700
+      positionAbsolute:
+        x: 8460
+        y: 700
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 310
+    - data:
+        answer: '{{#final_reviewer.text#}}'
+        desc: 最终行程（修订后）
+        selected: false
+        title: 最终行程（修订后）
+        type: answer
+        variables: []
+      height: 100
+      id: revised_plan_answer
+      position:
+        x: 8820
+        y: 700
+      positionAbsolute:
+        x: 8820
+        y: 700
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 280
+    - data:
+        code: "import json\n\ndef main(state: dict) -> dict:\n    raw = (state or {}).get('current_plan_json') or '{}'\n \
+          \   try: plan = json.loads(raw)\n    except Exception: plan = {}\n    if not plan:\n        plan_id=(state or {}).get('current_plan_id')\
+          \ or 'CURRENT_SESSION_PLAN'\n        plan={\n            'status':'MOCK_SUCCESS','data_mode':'MOCK','plan_id':plan_id,'plan_version':1,\n\
+          \            'days':[\n                {'day_id':'DAY-1','title':'熊猫与市井成都','items':[{'item_id':'ITEM-PANDA','poi_id':'POI-PANDA','name':'成都大熊猫繁育研究基地','visit_start':'08:00','visit_end':'12:00'}]},\n\
+          \                {'day_id':'DAY-2','title':'人文成都','items':[{'item_id':'ITEM-DU','poi_id':'POI-DU','name':'杜甫草堂','visit_start':'14:00','visit_end':'16:30'}]}\n\
+          \            ],\n            'selected_hotels':[{'option_id':'HOTEL-CD-001','name':'春熙路轻居酒店'}],\n            'selected_transport':[{'option_id':'TRAIN-G89','name':'G89'}]\n\
+          \        }\n    return {'current_plan_json':json.dumps(plan,ensure_ascii=False),'current_plan_id':plan.get('plan_id'),'plan_version':plan.get('plan_version',1)}"
+        code_language: python3
+        desc: 按 plan_id/version 读取可修改的结构化行程，深层计划使用 JSON 字符串。
+        outputs:
+          current_plan_json:
+            children: null
+            type: string
+          current_plan_id:
+            children: null
+            type: string
+          plan_version:
+            children: null
+            type: number
+        selected: false
+        title: 加载结构化当前方案
+        type: code
+        variables:
+        - variable: state
+          value_selector:
+          - pre_route_state
+          - state
+      height: 120
+      id: current_plan_loader
+      position:
+        x: 4500
+        y: 980
+      positionAbsolute:
+        x: 4500
+        y: 980
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: 根据结构化计划定位具体日期和选项，不从聊天文本猜。
+        memory:
+          query_prompt_template: '{{#sys.query#}}'
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: true
+            size: 20
+        model:
+          provider: langgenius/deepseek/deepseek
+          name: deepseek-v4-pro
+          mode: chat
+          completion_params:
+            temperature: 0.1
+        prompt_template:
+        - id: modify_agent-system
+          role: system
+          text: '只输出修改后的完整 JSON 行程，保留 plan_id，plan_version 加 1。
+
+            当前计划：{{#current_plan_loader.current_plan_json#}}
+
+            修改要求：{{#sys.query#}}
+
+            必须使用 day_id、option_id 或时间段定位修改对象。'
+        selected: false
+        title: 局部行程修改 Agent
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 120
+      id: modify_agent
+      position:
+        x: 4860
+        y: 980
+      positionAbsolute:
+        x: 4860
+        y: 980
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 310
+    - data:
+        code: "import json\ndef main(plan_raw: str) -> dict:\n    raw=(plan_raw or '').replace('```json','').replace('```','').strip();\
+          \ errors=[]\n    if '</think>' in raw: raw=raw.split('</think>',1)[1].strip()\n    json_start,json_end=raw.find('{'),raw.rfind('}')\n\
+          \    if json_start>=0 and json_end>=json_start: raw=raw[json_start:json_end+1]\n    try: plan=json.loads(raw)\n\
+          \    except Exception: plan={}; errors.append('PLAN_NOT_JSON')\n    if not plan.get('plan_id'): errors.append('MISSING_PLAN_ID')\n\
+          \    if not plan.get('plan_version'): errors.append('MISSING_PLAN_VERSION')\n    return {'plan_json':json.dumps(plan,ensure_ascii=False),'validation_errors':errors}"
+        code_language: python3
+        desc: 修改后执行确定性完整性检查。
+        outputs:
+          plan_json:
+            children: null
+            type: string
+          validation_errors:
+            children: null
+            type: array[string]
+        selected: false
+        title: 修改方案代码校验
+        type: code
+        variables:
+        - variable: plan_raw
+          value_selector:
+          - modify_agent
+          - text
+      height: 120
+      id: modify_validator
+      position:
+        x: 5220
+        y: 980
+      positionAbsolute:
+        x: 5220
+        y: 980
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: 检查局部修改后的节奏和偏好匹配。
+        memory:
+          query_prompt_template: '{{#sys.query#}}'
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: false
+            size: 20
+        model:
+          provider: langgenius/deepseek/deepseek
+          name: deepseek-v4-flash
+          mode: chat
+          completion_params:
+            temperature: 0.1
+        prompt_template:
+        - id: modify_reviewer-system
+          role: system
+          text: '简洁输出修改后的行程和变更摘要；如有硬错误必须明确提示。
+
+            计划：{{#modify_validator.plan_json#}}
+
+            硬错误：{{#modify_validator.validation_errors#}}'
+        selected: false
+        title: 修改结果软评审
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 120
+      id: modify_reviewer
+      position:
+        x: 5580
+        y: 980
+      positionAbsolute:
+        x: 5580
+        y: 980
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 310
+    - data:
+        answer: '{{#modify_reviewer.text#}}'
+        desc: 回复 - 修改后的方案
+        selected: false
+        title: 回复 - 修改后的方案
+        type: answer
+        variables: []
+      height: 100
+      id: modify_answer
+      position:
+        x: 5940
+        y: 980
+      positionAbsolute:
+        x: 5940
+        y: 980
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 280
+    - data:
+        code: "import json\ndef main(state: dict) -> dict:\n    types=(state or {}).get('booking_type') or []\n    selected=(state\
+          \ or {}).get('selected_option_ids') or []\n    if isinstance(types,str): types=[types]\n    if isinstance(selected,str):\
+          \ selected=[selected]\n    catalog={\n        'hotel':{'item_name':'春熙路轻居酒店','unit_price':458,'quantity':2,'total_price':916,'quote_id':'MOCK-HQ-001'},\n\
+          \        'train':{'item_name':'G89 二等座','unit_price':263,'quantity':1,'total_price':263,'quote_id':'MOCK-TQ-G89'},\n\
+          \        'flight':{'item_name':'MU2801 经济舱','unit_price':720,'quantity':1,'total_price':720,'quote_id':'MOCK-FQ-MU2801'},\n\
+          \        'ticket':{'item_name':'成都大熊猫繁育研究基地门票','unit_price':55,'quantity':1,'total_price':55,'quote_id':'MOCK-PQ-PANDA'}\n\
+          \    }\n    quotes={t:{'status':'MOCK_QUOTED','data_mode':'MOCK','selected_option_ids':selected,**catalog.get(t,{'item_name':'演示产品','unit_price':0,'quantity':1,'total_price':0,'quote_id':'MOCK-QUOTE'})}\
+          \ for t in types}\n    return {'quotes_json':json.dumps(quotes,ensure_ascii=False),'quote_types':types}"
+        code_language: python3
+        desc: 只查询 booking_type 指定的产品，不创建订单；报价列表使用 JSON 字符串。
+        outputs:
+          quotes_json:
+            children: null
+            type: string
+          quote_types:
+            children: null
+            type: array[string]
+        selected: false
+        title: 预订 1 - 刷新所选项报价
+        type: code
+        variables:
+        - variable: state
+          value_selector:
+          - pre_route_state
+          - state
+      height: 120
+      id: booking_quote_refresher
+      position:
+        x: 3800
+        y: 1260
+      positionAbsolute:
+        x: 3800
+        y: 1260
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        code: "import json\nimport time\n\ndef main(quotes_json: str, state: dict, conversation_id: str) -> dict:\n    try:\
+          \ quotes=json.loads(quotes_json or '{}')\n    except Exception: quotes={}\n    total=sum((item or {}).get('total_price',0)\
+          \ for item in (quotes or {}).values())\n    quote_ids=[item.get('quote_id') for item in (quotes or {}).values()\
+          \ if item.get('quote_id')]\n    draft={\n        'status':'PENDING_CONFIRMATION','data_mode':'MOCK','draft_id':'MOCK-DRAFT-'+conversation_id[-8:],\n\
+          \        'thread_id':conversation_id,'plan_id':(state or {}).get('current_plan_id'),\n        'plan_version':(state\
+          \ or {}).get('plan_version'),'booking_types':list((quotes or {}).keys()),\n        'items':quotes or {},'quote_ids':quote_ids,'total_price':total,'requires_confirmation':True,\n\
+          \        'created_at':int(time.time()),'expires_at':int(time.time())+900\n    }\n    return {'booking_draft_json':json.dumps(draft,ensure_ascii=False)}"
+        code_language: python3
+        desc: 生成无副作用 DRAFT，等待用户确认。
+        outputs:
+          booking_draft_json:
+            children: null
+            type: string
+        selected: false
+        title: 预订 2 - 生成订单草稿
+        type: code
+        variables:
+        - variable: quotes_json
+          value_selector:
+          - booking_quote_refresher
+          - quotes_json
+        - variable: state
+          value_selector:
+          - pre_route_state
+          - state
+        - variable: conversation_id
+          value_selector:
+          - sys
+          - conversation_id
+      height: 120
+      id: booking_draft_builder
+      position:
+        x: 4160
+        y: 1260
+      positionAbsolute:
+        x: 4160
+        y: 1260
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: 展示草稿，要求用户明确确认，不调用真实预订。
+        memory:
+          query_prompt_template: '{{#sys.query#}}'
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: true
+            size: 20
+        model:
+          provider: langgenius/deepseek/deepseek
+          name: deepseek-v4-flash
+          mode: chat
+          completion_params:
+            temperature: 0.1
+        prompt_template:
+        - id: booking_confirmation-system
+          role: system
+          text: '向用户展示订单草稿，只包含 booking_type 指定的项目。明确标注“演示订单，不会真实扣款或下单”，然后询问是否确认演示提交。
+
+            订单草稿：{{#booking_draft_builder.booking_draft_json#}}'
+        selected: false
+        title: 预订 3 - 草稿确认 Agent
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 120
+      id: booking_confirmation
+      position:
+        x: 4520
+        y: 1260
+      positionAbsolute:
+        x: 4520
+        y: 1260
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 310
+    - data:
+        answer: '{{#booking_confirmation.text#}}'
+        desc: 回复 - 等待预订确认
+        selected: false
+        title: 回复 - 等待预订确认
+        type: answer
+        variables: []
+      height: 100
+      id: booking_draft_answer
+      position:
+        x: 4880
+        y: 1260
+      positionAbsolute:
+        x: 4880
+        y: 1260
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 280
+    - data:
+        code: "import json\n\ndef main(draft_json: str) -> dict:\n    try: draft=json.loads(draft_json or '{}')\n    except\
+          \ Exception: draft={}\n    return {\n        'submit_status':'MOCK_SUCCESS','data_mode':'MOCK',\n        'mock_order_id':'MOCK-ORDER-'+str(draft.get('draft_id','UNKNOWN'))[-8:],\n\
+          \        'draft_id':draft.get('draft_id'),'endpoint':'MOCK POST /bookings/submit',\n        'requires_valid_confirmation_token':True,'booking_type':draft.get('booking_types')\
+          \ or []\n    }"
+        code_language: python3
+        desc: 仅 booking_confirm 意图可进入；原型仍不产生真实订单。
+        outputs:
+          submit_status:
+            children: null
+            type: string
+          data_mode:
+            children: null
+            type: string
+          mock_order_id:
+            children: null
+            type: string
+          endpoint:
+            children: null
+            type: string
+          requires_valid_confirmation_token:
+            children: null
+            type: boolean
+          booking_type:
+            children: null
+            type: array[string]
+          draft_id:
+            children: null
+            type: string
+        selected: false
+        title: 预订 4 - 确认后提交网关
+        type: code
+        variables:
+        - variable: draft_json
+          value_selector:
+          - booking_confirmation_guard
+          - draft_json
+      height: 120
+      id: booking_submit_gateway
+      position:
+        x: 3800
+        y: 1540
+      positionAbsolute:
+        x: 3800
+        y: 1540
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        answer: 演示提交状态：{{#booking_submit_gateway.submit_status#}}；演示订单号：{{#booking_submit_gateway.mock_order_id#}}。这是 Mock
+          结果，不会创建真实订单。
+        desc: 回复 - 预订提交状态
+        selected: false
+        title: 回复 - 预订提交状态
+        type: answer
+        variables: []
+      height: 100
+      id: booking_submit_answer
+      position:
+        x: 4160
+        y: 1540
+      positionAbsolute:
+        x: 4160
+        y: 1540
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 280
+    - data:
+        code: "import json\n\ndef main(conversation_id: str, checkpoint_json: str, current_plan_json: str, booking_draft_json:\
+          \ str, checkpoint_version: float) -> dict:\n    try: checkpoint = json.loads(checkpoint_json or '{}')\n    except\
+          \ Exception: checkpoint = {}\n    try: plan = json.loads(current_plan_json or '{}')\n    except Exception: plan\
+          \ = {}\n    try: draft = json.loads(booking_draft_json or '{}')\n    except Exception: draft = {}\n    summary =\
+          \ {\n        'thread_id': conversation_id,\n        'checkpoint_version': int(checkpoint_version or 0),\n      \
+          \  'active_plan_id': plan.get('plan_id') or checkpoint.get('active_plan_id'),\n        'active_plan_version': plan.get('plan_version')\
+          \ or checkpoint.get('active_plan_version'),\n        'booking_draft_id': draft.get('draft_id'),\n        'booking_draft_status':\
+          \ draft.get('status'),\n        'has_resumable_state': bool(plan or draft or checkpoint)\n    }\n    return {'checkpoint_context_json':json.dumps(summary,ensure_ascii=False),'has_resumable_state':'true'\
+          \ if summary['has_resumable_state'] else 'false'}"
+        code_language: python3
+        desc: 每轮开始读取 conversation_id 对应的方案、草稿和版本；正式实现替换为 MySQL CheckpointRepository。
+        outputs:
+          checkpoint_context_json:
+            children: null
+            type: string
+          has_resumable_state:
+            children: null
+            type: string
+        selected: false
+        title: 状态检查点读取 / Checkpoint Hydrator
+        type: code
+        variables:
+        - variable: conversation_id
+          value_selector:
+          - sys
+          - conversation_id
+        - variable: checkpoint_json
+          value_selector:
+          - conversation
+          - travel_checkpoint_json
+        - variable: current_plan_json
+          value_selector:
+          - conversation
+          - current_plan_json
+        - variable: booking_draft_json
+          value_selector:
+          - conversation
+          - booking_draft_json
+        - variable: checkpoint_version
+          value_selector:
+          - conversation
+          - checkpoint_version
+      height: 120
+      id: checkpoint_hydrator
+      position:
+        x: 1120
+        y: 680
+      positionAbsolute:
+        x: 1120
+        y: 680
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        code: "import json\n\ndef main(state: dict, plan_json: str, conversation_id: str, checkpoint_version: float) -> dict:\n\
+          \    try:\n        plan = json.loads(plan_json or '{}')\n    except Exception:\n        plan = {}\n    next_version\
+          \ = int(checkpoint_version or 0) + 1\n    checkpoint = {\n        'schema_version': 1,\n        'thread_id': conversation_id,\n\
+          \        'checkpoint_version': next_version,\n        'active_plan_id': plan.get('plan_id'),\n        'active_plan_version':\
+          \ plan.get('plan_version'),\n        'current_plan_json': json.dumps(plan, ensure_ascii=False),\n        'booking_draft_id':\
+          \ None,\n        'booking_draft_status': None,\n        'updated_by': 'DIFY_MOCK_CHECKPOINT_WRITER'\n    }\n   \
+          \ return {\n        'checkpoint_json': json.dumps(checkpoint, ensure_ascii=False),\n        'current_plan_json':\
+          \ json.dumps(plan, ensure_ascii=False),\n        'next_checkpoint_version': next_version,\n        'checkpoint_status':\
+          \ 'MOCK_SAVED'\n    }"
+        code_language: python3
+        desc: 把最终结构化方案绑定 thread_id 和版本号，生成可跨轮恢复的检查点。
+        outputs:
+          checkpoint_json:
+            children: null
+            type: string
+          current_plan_json:
+            children: null
+            type: string
+          next_checkpoint_version:
+            children: null
+            type: number
+          checkpoint_status:
+            children: null
+            type: string
+        selected: false
+        title: 保存校验通过的方案检查点
+        type: code
+        variables:
+        - variable: state
+          value_selector:
+          - pre_route_state
+          - state
+        - variable: plan_json
+          value_selector:
+          - hard_validator
+          - plan_json
+        - variable: conversation_id
+          value_selector:
+          - sys
+          - conversation_id
+        - variable: checkpoint_version
+          value_selector:
+          - conversation
+          - checkpoint_version
+      height: 120
+      id: plan_checkpoint_builder
+      position:
+        x: 7740
+        y: 360
+      positionAbsolute:
+        x: 7740
+        y: 360
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        desc: 写入会话方案状态
+        items:
+        - input_type: variable
+          operation: over-write
+          value:
+          - plan_checkpoint_builder
+          - checkpoint_json
+          variable_selector:
+          - conversation
+          - travel_checkpoint_json
+          write_mode: over-write
+        - input_type: variable
+          operation: over-write
+          value:
+          - plan_checkpoint_builder
+          - current_plan_json
+          variable_selector:
+          - conversation
+          - current_plan_json
+          write_mode: over-write
+        - input_type: variable
+          operation: over-write
+          value:
+          - plan_checkpoint_builder
+          - next_checkpoint_version
+          variable_selector:
+          - conversation
+          - checkpoint_version
+          write_mode: over-write
+        selected: false
+        title: 写入会话方案状态
+        type: assigner
+        version: '2'
+      height: 145
+      id: plan_checkpoint_assigner
+      position:
+        x: 8100
+        y: 360
+      positionAbsolute:
+        x: 8100
+        y: 360
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        code: "import json\n\ndef main(state: dict, plan_json: str, conversation_id: str, checkpoint_version: float) -> dict:\n\
+          \    try:\n        plan = json.loads(plan_json or '{}')\n    except Exception:\n        plan = {}\n    next_version\
+          \ = int(checkpoint_version or 0) + 1\n    checkpoint = {\n        'schema_version': 1,\n        'thread_id': conversation_id,\n\
+          \        'checkpoint_version': next_version,\n        'active_plan_id': plan.get('plan_id'),\n        'active_plan_version':\
+          \ plan.get('plan_version'),\n        'current_plan_json': json.dumps(plan, ensure_ascii=False),\n        'booking_draft_id':\
+          \ None,\n        'booking_draft_status': None,\n        'updated_by': 'DIFY_MOCK_CHECKPOINT_WRITER'\n    }\n   \
+          \ return {\n        'checkpoint_json': json.dumps(checkpoint, ensure_ascii=False),\n        'current_plan_json':\
+          \ json.dumps(plan, ensure_ascii=False),\n        'next_checkpoint_version': next_version,\n        'checkpoint_status':\
+          \ 'MOCK_SAVED'\n    }"
+        code_language: python3
+        desc: 把最终结构化方案绑定 thread_id 和版本号，生成可跨轮恢复的检查点。
+        outputs:
+          checkpoint_json:
+            children: null
+            type: string
+          current_plan_json:
+            children: null
+            type: string
+          next_checkpoint_version:
+            children: null
+            type: number
+          checkpoint_status:
+            children: null
+            type: string
+        selected: false
+        title: 保存修订后的方案检查点
+        type: code
+        variables:
+        - variable: state
+          value_selector:
+          - pre_route_state
+          - state
+        - variable: plan_json
+          value_selector:
+          - second_hard_validator
+          - plan_json
+        - variable: conversation_id
+          value_selector:
+          - sys
+          - conversation_id
+        - variable: checkpoint_version
+          value_selector:
+          - conversation
+          - checkpoint_version
+      height: 120
+      id: revised_checkpoint_builder
+      position:
+        x: 8460
+        y: 640
+      positionAbsolute:
+        x: 8460
+        y: 640
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        desc: 写入修订方案状态
+        items:
+        - input_type: variable
+          operation: over-write
+          value:
+          - revised_checkpoint_builder
+          - checkpoint_json
+          variable_selector:
+          - conversation
+          - travel_checkpoint_json
+          write_mode: over-write
+        - input_type: variable
+          operation: over-write
+          value:
+          - revised_checkpoint_builder
+          - current_plan_json
+          variable_selector:
+          - conversation
+          - current_plan_json
+          write_mode: over-write
+        - input_type: variable
+          operation: over-write
+          value:
+          - revised_checkpoint_builder
+          - next_checkpoint_version
+          variable_selector:
+          - conversation
+          - checkpoint_version
+          write_mode: over-write
+        selected: false
+        title: 写入修订方案状态
+        type: assigner
+        version: '2'
+      height: 145
+      id: revised_checkpoint_assigner
+      position:
+        x: 8820
+        y: 640
+      positionAbsolute:
+        x: 8820
+        y: 640
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        code: "import json\n\ndef main(state: dict, plan_json: str, conversation_id: str, checkpoint_version: float) -> dict:\n\
+          \    try:\n        plan = json.loads(plan_json or '{}')\n    except Exception:\n        plan = {}\n    next_version\
+          \ = int(checkpoint_version or 0) + 1\n    checkpoint = {\n        'schema_version': 1,\n        'thread_id': conversation_id,\n\
+          \        'checkpoint_version': next_version,\n        'active_plan_id': plan.get('plan_id'),\n        'active_plan_version':\
+          \ plan.get('plan_version'),\n        'current_plan_json': json.dumps(plan, ensure_ascii=False),\n        'booking_draft_id':\
+          \ None,\n        'booking_draft_status': None,\n        'updated_by': 'DIFY_MOCK_CHECKPOINT_WRITER'\n    }\n   \
+          \ return {\n        'checkpoint_json': json.dumps(checkpoint, ensure_ascii=False),\n        'current_plan_json':\
+          \ json.dumps(plan, ensure_ascii=False),\n        'next_checkpoint_version': next_version,\n        'checkpoint_status':\
+          \ 'MOCK_SAVED'\n    }"
+        code_language: python3
+        desc: 把最终结构化方案绑定 thread_id 和版本号，生成可跨轮恢复的检查点。
+        outputs:
+          checkpoint_json:
+            children: null
+            type: string
+          current_plan_json:
+            children: null
+            type: string
+          next_checkpoint_version:
+            children: null
+            type: number
+          checkpoint_status:
+            children: null
+            type: string
+        selected: false
+        title: 保存局部修改后的方案
+        type: code
+        variables:
+        - variable: state
+          value_selector:
+          - pre_route_state
+          - state
+        - variable: plan_json
+          value_selector:
+          - modify_validator
+          - plan_json
+        - variable: conversation_id
+          value_selector:
+          - sys
+          - conversation_id
+        - variable: checkpoint_version
+          value_selector:
+          - conversation
+          - checkpoint_version
+      height: 120
+      id: modify_checkpoint_builder
+      position:
+        x: 5580
+        y: 920
+      positionAbsolute:
+        x: 5580
+        y: 920
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        desc: 写入修改方案状态
+        items:
+        - input_type: variable
+          operation: over-write
+          value:
+          - modify_checkpoint_builder
+          - checkpoint_json
+          variable_selector:
+          - conversation
+          - travel_checkpoint_json
+          write_mode: over-write
+        - input_type: variable
+          operation: over-write
+          value:
+          - modify_checkpoint_builder
+          - current_plan_json
+          variable_selector:
+          - conversation
+          - current_plan_json
+          write_mode: over-write
+        - input_type: variable
+          operation: over-write
+          value:
+          - modify_checkpoint_builder
+          - next_checkpoint_version
+          variable_selector:
+          - conversation
+          - checkpoint_version
+          write_mode: over-write
+        selected: false
+        title: 写入修改方案状态
+        type: assigner
+        version: '2'
+      height: 145
+      id: modify_checkpoint_assigner
+      position:
+        x: 5940
+        y: 920
+      positionAbsolute:
+        x: 5940
+        y: 920
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        code: "import json\n\ndef main(draft_json: str, checkpoint_json: str, checkpoint_version: float) -> dict:\n    try:\
+          \ draft=json.loads(draft_json or '{}')\n    except Exception: draft={}\n    try: checkpoint=json.loads(checkpoint_json\
+          \ or '{}')\n    except Exception: checkpoint={}\n    next_version=int(checkpoint_version or 0)+1\n    checkpoint.update({\n\
+          \        'checkpoint_version':next_version,\n        'booking_draft_id':draft.get('draft_id'),\n        'booking_draft_status':draft.get('status'),\n\
+          \        'booking_draft_expires_at':draft.get('expires_at')\n    })\n    return {'checkpoint_json':json.dumps(checkpoint,ensure_ascii=False),'booking_draft_json':json.dumps(draft,ensure_ascii=False),'next_checkpoint_version':next_version}"
+        code_language: python3
+        desc: 把订单草稿绑定当前 conversation_id、计划版本和过期时间。
+        outputs:
+          checkpoint_json:
+            children: null
+            type: string
+          booking_draft_json:
+            children: null
+            type: string
+          next_checkpoint_version:
+            children: null
+            type: number
+        selected: false
+        title: 订单草稿检查点构建
+        type: code
+        variables:
+        - variable: draft_json
+          value_selector:
+          - booking_draft_builder
+          - booking_draft_json
+        - variable: checkpoint_json
+          value_selector:
+          - conversation
+          - travel_checkpoint_json
+        - variable: checkpoint_version
+          value_selector:
+          - conversation
+          - checkpoint_version
+      height: 120
+      id: draft_checkpoint_builder
+      position:
+        x: 4520
+        y: 1260
+      positionAbsolute:
+        x: 4520
+        y: 1260
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        desc: 保存待确认订单草稿
+        items:
+        - input_type: variable
+          operation: over-write
+          value:
+          - draft_checkpoint_builder
+          - checkpoint_json
+          variable_selector:
+          - conversation
+          - travel_checkpoint_json
+          write_mode: over-write
+        - input_type: variable
+          operation: over-write
+          value:
+          - draft_checkpoint_builder
+          - booking_draft_json
+          variable_selector:
+          - conversation
+          - booking_draft_json
+          write_mode: over-write
+        - input_type: variable
+          operation: over-write
+          value:
+          - draft_checkpoint_builder
+          - next_checkpoint_version
+          variable_selector:
+          - conversation
+          - checkpoint_version
+          write_mode: over-write
+        selected: false
+        title: 保存待确认订单草稿
+        type: assigner
+        version: '2'
+      height: 145
+      id: draft_checkpoint_assigner
+      position:
+        x: 4880
+        y: 1260
+      positionAbsolute:
+        x: 4880
+        y: 1260
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        code: "import json\nimport time\n\ndef main(query: str, conversation_id: str, persisted_draft_json: str) -> dict:\n\
+          \    try: draft=json.loads(persisted_draft_json or '{}')\n    except Exception: draft={}\n    error=''\n    if not\
+          \ draft.get('draft_id'): error='NO_PENDING_DRAFT'\n    elif draft.get('thread_id') != conversation_id: error='DRAFT_THREAD_MISMATCH'\n\
+          \    elif draft.get('status') != 'PENDING_CONFIRMATION': error='DRAFT_NOT_CONFIRMABLE'\n    elif int(draft.get('expires_at')\
+          \ or 0) < int(time.time()): error='DRAFT_EXPIRED'\n    elif not any(word in (query or '') for word in ['确认提交','确认下单','确认预订','确认购买']):\
+          \ error='EXPLICIT_CONFIRMATION_REQUIRED'\n    return {\n        'can_submit':'true' if not error else 'false',\n\
+          \        'validation_error':error,\n        'draft_json':json.dumps(draft,ensure_ascii=False),\n        'booking_type':draft.get('booking_types')\
+          \ or []\n    }"
+        code_language: python3
+        desc: 只有同一 conversation_id 下、未过期且状态为 PENDING_CONFIRMATION 的上一轮草稿可以提交。
+        outputs:
+          can_submit:
+            children: null
+            type: string
+          validation_error:
+            children: null
+            type: string
+          draft_json:
+            children: null
+            type: string
+          booking_type:
+            children: null
+            type: array[string]
+        selected: false
+        title: 预订确认绑定校验
+        type: code
+        variables:
+        - variable: query
+          value_selector:
+          - sys
+          - query
+        - variable: conversation_id
+          value_selector:
+          - sys
+          - conversation_id
+        - variable: persisted_draft_json
+          value_selector:
+          - conversation
+          - booking_draft_json
+      height: 120
+      id: booking_confirmation_guard
+      position:
+        x: 3800
+        y: 1540
+      positionAbsolute:
+        x: 3800
+        y: 1540
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        cases:
+        - case_id: valid_draft
+          conditions:
+          - comparison_operator: is
+            id: condition-valid_draft
+            value: 'true'
+            varType: string
+            variable_selector:
+            - booking_confirmation_guard
+            - can_submit
+          id: valid_draft
+          logical_operator: and
+        desc: 预订草稿有效性路由
+        selected: false
+        title: 预订草稿有效性路由
+        type: if-else
+      height: 180
+      id: booking_confirmation_router
+      position:
+        x: 4160
+        y: 1540
+      positionAbsolute:
+        x: 4160
+        y: 1540
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        answer: 没有找到可确认的上一轮订单草稿，或者草稿已经过期/提交。请先重新选择要预订的酒店、交通或门票。错误码：{{#booking_confirmation_guard.validation_error#}}
+        desc: 回复 - 无有效草稿
+        selected: false
+        title: 回复 - 无有效草稿
+        type: answer
+        variables: []
+      height: 100
+      id: invalid_draft_answer
+      position:
+        x: 4520
+        y: 1680
+      positionAbsolute:
+        x: 4520
+        y: 1680
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 280
+    - data:
+        code: "import json\n\ndef main(draft_json: str, checkpoint_json: str, checkpoint_version: float) -> dict:\n    try:\
+          \ draft=json.loads(draft_json or '{}')\n    except Exception: draft={}\n    try: checkpoint=json.loads(checkpoint_json\
+          \ or '{}')\n    except Exception: checkpoint={}\n    draft['status']='SUBMITTED'\n    next_version=int(checkpoint_version\
+          \ or 0)+1\n    checkpoint.update({'checkpoint_version':next_version,'booking_draft_id':draft.get('draft_id'),'booking_draft_status':'SUBMITTED'})\n\
+          \    return {'booking_draft_json':json.dumps(draft,ensure_ascii=False),'checkpoint_json':json.dumps(checkpoint,ensure_ascii=False),'next_checkpoint_version':next_version}"
+        code_language: python3
+        desc: 提交成功后把草稿状态改为 SUBMITTED，防止重复确认。
+        outputs:
+          booking_draft_json:
+            children: null
+            type: string
+          checkpoint_json:
+            children: null
+            type: string
+          next_checkpoint_version:
+            children: null
+            type: number
+        selected: false
+        title: 提交后草稿失效
+        type: code
+        variables:
+        - variable: draft_json
+          value_selector:
+          - booking_confirmation_guard
+          - draft_json
+        - variable: checkpoint_json
+          value_selector:
+          - conversation
+          - travel_checkpoint_json
+        - variable: checkpoint_version
+          value_selector:
+          - conversation
+          - checkpoint_version
+      height: 120
+      id: submit_state_builder
+      position:
+        x: 4880
+        y: 1540
+      positionAbsolute:
+        x: 4880
+        y: 1540
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        desc: 写回已提交草稿状态
+        items:
+        - input_type: variable
+          operation: over-write
+          value:
+          - submit_state_builder
+          - booking_draft_json
+          variable_selector:
+          - conversation
+          - booking_draft_json
+          write_mode: over-write
+        - input_type: variable
+          operation: over-write
+          value:
+          - submit_state_builder
+          - checkpoint_json
+          variable_selector:
+          - conversation
+          - travel_checkpoint_json
+          write_mode: over-write
+        - input_type: variable
+          operation: over-write
+          value:
+          - submit_state_builder
+          - next_checkpoint_version
+          variable_selector:
+          - conversation
+          - checkpoint_version
+          write_mode: over-write
+        selected: false
+        title: 写回已提交草稿状态
+        type: assigner
+        version: '2'
+      height: 145
+      id: submit_state_assigner
+      position:
+        x: 5240
+        y: 1540
+      positionAbsolute:
+        x: 5240
+        y: 1540
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        code: "import json\n\ndef main(query_result_json: str) -> dict:\n    try: payload=json.loads(query_result_json or\
+          \ '{}')\n    except Exception: payload={}\n    errors=payload.get('tool_errors') or []\n    action='continue'\n\
+          \    if errors:\n        if any(e.get('retryable') and int(e.get('attempt') or 0)<2 for e in errors): action='retry'\n\
+          \        elif all(e.get('fallback_available') for e in errors): action='fallback'\n        else: action='degraded'\n\
+          \    return {'recovery_action':action,'tool_errors_json':json.dumps(errors,ensure_ascii=False),'original_result_json':json.dumps(payload,ensure_ascii=False)}"
+        code_language: python3
+        desc: 根据错误类型、重试次数和降级能力选择继续、一次重试、缓存降级或明确失败。
+        outputs:
+          recovery_action:
+            children: null
+            type: string
+          tool_errors_json:
+            children: null
+            type: string
+          original_result_json:
+            children: null
+            type: string
+        selected: false
+        title: 统一工具失败恢复策略
+        type: code
+        variables:
+        - variable: query_result_json
+          value_selector:
+          - query_executor
+          - query_result_json
+      height: 120
+      id: query_recovery_policy
+      position:
+        x: 5580
+        y: 40
+      positionAbsolute:
+        x: 5580
+        y: 40
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        desc: 记录最近工具错误
+        items:
+        - input_type: variable
+          operation: over-write
+          value:
+          - query_recovery_policy
+          - tool_errors_json
+          variable_selector:
+          - conversation
+          - last_tool_errors_json
+          write_mode: over-write
+        selected: false
+        title: 记录最近工具错误
+        type: assigner
+        version: '2'
+      height: 88
+      id: tool_error_assigner
+      position:
+        x: 5940
+        y: 40
+      positionAbsolute:
+        x: 5940
+        y: 40
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        cases:
+        - case_id: retry
+          conditions:
+          - comparison_operator: is
+            id: condition-retry
+            value: retry
+            varType: string
+            variable_selector:
+            - query_recovery_policy
+            - recovery_action
+          id: retry
+          logical_operator: and
+        - case_id: fallback
+          conditions:
+          - comparison_operator: is
+            id: condition-fallback
+            value: fallback
+            varType: string
+            variable_selector:
+            - query_recovery_policy
+            - recovery_action
+          id: fallback
+          logical_operator: and
+        - case_id: degraded
+          conditions:
+          - comparison_operator: is
+            id: condition-degraded
+            value: degraded
+            varType: string
+            variable_selector:
+            - query_recovery_policy
+            - recovery_action
+          id: degraded
+          logical_operator: and
+        desc: 工具恢复动作路由
+        selected: false
+        title: 工具恢复动作路由
+        type: if-else
+      height: 245
+      id: query_recovery_router
+      position:
+        x: 6300
+        y: 40
+      positionAbsolute:
+        x: 6300
+        y: 40
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        code: "import json\n\ndef main(original_result_json: str) -> dict:\n    try: payload=json.loads(original_result_json\
+          \ or '{}')\n    except Exception: payload={}\n    results=payload.get('tool_results') or {}\n    for error in payload.get('tool_errors')\
+          \ or []:\n        tool=error.get('tool')\n        results[tool]={'status':'MOCK_RETRY_SUCCESS','data_mode':'MOCK','tool':tool,'attempt':2,'data':{'message':'第二次调用成功','recovered':True}}\n\
+          \    return {'query_result_json':json.dumps({'tool_results':results,'tool_errors':[],'recovery_trace':['RETRY_ATTEMPT_2_SUCCESS']},ensure_ascii=False)}"
+        code_language: python3
+        desc: 只重试 retryable 工具，第二次失败不再循环。
+        outputs:
+          query_result_json:
+            children: null
+            type: string
+        selected: false
+        title: 工具限次重试（最多 1 次）
+        type: code
+        variables:
+        - variable: original_result_json
+          value_selector:
+          - query_recovery_policy
+          - original_result_json
+      height: 120
+      id: query_retry_executor
+      position:
+        x: 6660
+        y: -80
+      positionAbsolute:
+        x: 6660
+        y: -80
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        code: "import json\n\ndef main(original_result_json: str) -> dict:\n    try: payload=json.loads(original_result_json\
+          \ or '{}')\n    except Exception: payload={}\n    results=payload.get('tool_results') or {}\n    for error in payload.get('tool_errors')\
+          \ or []:\n        tool=error.get('tool')\n        results[tool]={'status':'MOCK_FALLBACK_SUCCESS','data_mode':'MOCK_CACHE','tool':tool,'data':{'message':'使用最近缓存快照','freshness':'15\
+          \ minutes ago'}}\n    return {'query_result_json':json.dumps({'tool_results':results,'tool_errors':[],'recovery_trace':['CACHE_FALLBACK_USED']},ensure_ascii=False)}"
+        code_language: python3
+        desc: 不可重试但存在缓存或替代数据源时，返回带时效声明的降级结果。
+        outputs:
+          query_result_json:
+            children: null
+            type: string
+        selected: false
+        title: 工具缓存/替代源降级
+        type: code
+        variables:
+        - variable: original_result_json
+          value_selector:
+          - query_recovery_policy
+          - original_result_json
+      height: 120
+      id: query_fallback_executor
+      position:
+        x: 6660
+        y: 120
+      positionAbsolute:
+        x: 6660
+        y: 120
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: 将恢复后的实时查询结果整理成简洁答复。
+        memory:
+          query_prompt_template: '{{#sys.query#}}'
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: true
+            size: 20
+        model:
+          provider: langgenius/deepseek/deepseek
+          name: deepseek-v4-flash
+          mode: chat
+          completion_params:
+            temperature: 0.1
+        prompt_template:
+        - id: query_retry_presenter-system
+          role: system
+          text: 工具经过一次重试后成功。简洁回答用户，标注演示数据和已恢复，不生成完整行程。结果：{{#query_retry_executor.query_result_json#}}
+        selected: false
+        title: Flash - 重试结果整理
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 120
+      id: query_retry_presenter
+      position:
+        x: 7020
+        y: -80
+      positionAbsolute:
+        x: 7020
+        y: -80
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 310
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: 将缓存或替代数据源结果整理成带时效声明的答复。
+        memory:
+          query_prompt_template: '{{#sys.query#}}'
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: true
+            size: 20
+        model:
+          provider: langgenius/deepseek/deepseek
+          name: deepseek-v4-flash
+          mode: chat
+          completion_params:
+            temperature: 0.1
+        prompt_template:
+        - id: query_fallback_presenter-system
+          role: system
+          text: 实时工具不可用，当前使用缓存/替代源。必须说明数据时效，简洁回答。结果：{{#query_fallback_executor.query_result_json#}}
+        selected: false
+        title: Flash - 降级结果整理
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 120
+      id: query_fallback_presenter
+      position:
+        x: 7020
+        y: 120
+      positionAbsolute:
+        x: 7020
+        y: 120
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 310
+    - data:
+        answer: '{{#query_retry_presenter.text#}}'
+        desc: 回复 - 工具重试成功
+        selected: false
+        title: 回复 - 工具重试成功
+        type: answer
+        variables: []
+      height: 100
+      id: query_retry_answer
+      position:
+        x: 7380
+        y: -80
+      positionAbsolute:
+        x: 7380
+        y: -80
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 280
+    - data:
+        answer: '{{#query_fallback_presenter.text#}}'
+        desc: 回复 - 工具降级结果
+        selected: false
+        title: 回复 - 工具降级结果
+        type: answer
+        variables: []
+      height: 100
+      id: query_fallback_answer
+      position:
+        x: 7380
+        y: 120
+      positionAbsolute:
+        x: 7380
+        y: 120
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 280
+    - data:
+        answer: 实时查询暂时不可用，系统已停止继续重试，避免重复调用。你可以稍后重试或改用不依赖实时数据的攻略建议。错误：{{#query_recovery_policy.tool_errors_json#}}
+        desc: 回复 - 工具暂不可用
+        selected: false
+        title: 回复 - 工具暂不可用
+        type: answer
+        variables: []
+      height: 100
+      id: query_failure_answer
+      position:
+        x: 6660
+        y: 260
+      positionAbsolute:
+        x: 6660
+        y: 260
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 280
+    - data:
+        code: "import json\n\ndef main(phase1_results_json: str, query: str) -> dict:\n    try: results=json.loads(phase1_results_json\
+          \ or '{}')\n    except Exception: results={}\n    trace=[]\n    if '模拟天气接口失败' in (query or '') and 'weather' in\
+          \ results:\n        results['weather']['status']='MOCK_RETRY_SUCCESS'\n        results['weather']['attempt']=2\n\
+          \        trace.append({'tool':'weather','action':'retry','result':'success','attempt':2})\n    if '模拟酒店接口失败' in\
+          \ (query or '') and 'hotel_area' in results:\n        results['hotel_area']['status']='MOCK_FALLBACK_SUCCESS'\n\
+          \        results['hotel_area']['data_mode']='MOCK_CACHE'\n        trace.append({'tool':'hotel_area','action':'fallback','source':'cached_area_snapshot'})\n\
+          \    return {'phase1_results_json':json.dumps(results,ensure_ascii=False),'recovery_trace_json':json.dumps(trace,ensure_ascii=False)}"
+        code_language: python3
+        desc: 在候选选择前统一处理规划阶段的超时、重试和缓存降级，并留下恢复轨迹。
+        outputs:
+          phase1_results_json:
+            children: null
+            type: string
+          recovery_trace_json:
+            children: null
+            type: string
+        selected: false
+        title: 规划工具恢复与降级审计
+        type: code
+        variables:
+        - variable: phase1_results_json
+          value_selector:
+          - phase1_research
+          - phase1_results_json
+        - variable: query
+          value_selector:
+          - sys
+          - query
+      height: 120
+      id: phase1_recovery_audit
+      position:
+        x: 5580
+        y: 470
+      positionAbsolute:
+        x: 5580
+        y: 470
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 300
+    viewport:
+      x: 30
+      y: 20
+      zoom: 0.35

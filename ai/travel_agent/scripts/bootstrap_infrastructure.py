@@ -36,7 +36,7 @@ async def main() -> None:
         settings.chroma_persist_directory,
         collection_prefix=settings.chroma_collection,
     )
-    knowledge_base.seed_demo_documents()
+    knowledge_base.remove_documents_by_source("demo-seed")
     statuses["chroma"] = f"ok ({knowledge_base.count('poi')} poi documents)"
 
     for name, status in statuses.items():

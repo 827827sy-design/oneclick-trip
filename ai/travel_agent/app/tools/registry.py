@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
 from collections.abc import Mapping
 
 from app.domain.models import ToolName, ToolResult
@@ -31,6 +33,36 @@ class ToolRegistry:
                 retryable=False,
             )
 
+    async def ainvoke(self, name: ToolName, context: ToolContext) -> ToolResult:
+        tool = self._tools.get(name)
+        if tool is None:
+            return ToolResult(
+                success=False,
+                error_code="TOOL_NOT_REGISTERED",
+                retryable=False,
+            )
+        try:
+            async_call = getattr(tool, "acall", None)
+            if async_call is not None:
+                result = async_call(context)
+                return await result if inspect.isawaitable(result) else result
+            return await asyncio.to_thread(tool, context)
+        except Exception as exc:
+            return ToolResult(
+                success=False,
+                data={"message": str(exc)},
+                error_code="TOOL_UNHANDLED_EXCEPTION",
+                retryable=False,
+            )
+
     @property
     def names(self) -> frozenset[ToolName]:
         return frozenset(self._tools)
+
+    @property
+    def realtime_names(self) -> frozenset[ToolName]:
+        return frozenset(
+            name
+            for name, tool in self._tools.items()
+            if bool(getattr(tool, "is_realtime_provider", False))
+        )

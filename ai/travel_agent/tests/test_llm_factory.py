@@ -19,6 +19,9 @@ def settings(api_key: str | None) -> Settings:
         deepseek_base_url="https://api.deepseek.com",
         deepseek_flash_model="deepseek-v4-flash",
         deepseek_pro_model="deepseek-v4-pro",
+        business_backend="java",
+        java_backend_base_url="http://127.0.0.1:8080",
+        java_internal_service_secret="test-internal-secret",
     )
 
 

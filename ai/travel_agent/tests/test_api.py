@@ -91,9 +91,76 @@ def test_run_endpoint_returns_phase_three_plan_draft() -> None:
     assert body["selected_tools"] == ["weather"]
     assert set(body["tool_results"]) == {"weather"}
     assert body["tool_attempts"] == {"weather": 1}
-    assert body["phase1_research"]["data_mode"] == "OFFLINE_FALLBACK"
-    assert body["phase2_research"]["data_mode"] == "OFFLINE_FALLBACK"
+    assert body["phase1_research"]["data_mode"] == "TEST_FIXTURE"
+    assert body["phase2_research"]["data_mode"] == "TEST_FIXTURE"
     assert "AI 通用知识建议" in body["reply"]
+
+
+def test_async_run_can_be_polled_until_the_agent_completes() -> None:
+    application = create_app(InMemoryCheckpointBackend())
+
+    async def execute_flow() -> tuple[Response, Response]:
+        transport = ASGITransport(app=application)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            accepted = await client.post(
+                "/v1/agent/runs/async",
+                json={
+                    "conversation_id": "conversation-api-async",
+                    "user_id": "user-api-async",
+                    "message": "成都明天天气怎么样？",
+                },
+            )
+            run_id = accepted.json()["run_id"]
+            completed: Response | None = None
+            for _ in range(200):
+                completed = await client.get(
+                    f"/v1/agent/runs/jobs/{run_id}",
+                    params={"user_id": "user-api-async"},
+                )
+                if completed.json()["status"] in {"COMPLETED", "FAILED"}:
+                    break
+                await asyncio.sleep(0.01)
+            assert completed is not None
+            return accepted, completed
+
+    accepted, completed = asyncio.run(execute_flow())
+
+    assert accepted.status_code == 202
+    assert completed.status_code == 200
+    body = completed.json()
+    assert body["status"] == "COMPLETED"
+    assert body["progress"] == 100
+    assert body["model_mode"] == "rules"
+    assert body["started_at"] is not None
+    assert body["completed_at"] is not None
+    assert body["duration_ms"] >= 0
+    assert body["node_timings"]
+    assert body["result"]["intent"] == "weather_query"
+    assert body["result"]["selected_tools"] == ["weather"]
+
+
+def test_async_run_job_is_bound_to_the_owner() -> None:
+    application = create_app(InMemoryCheckpointBackend())
+
+    async def execute_flow() -> Response:
+        transport = ASGITransport(app=application)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            accepted = await client.post(
+                "/v1/agent/runs/async",
+                json={
+                    "conversation_id": "conversation-api-private-job",
+                    "user_id": "job-owner",
+                    "message": "成都明天天气怎么样？",
+                },
+            )
+            return await client.get(
+                f"/v1/agent/runs/jobs/{accepted.json()['run_id']}",
+                params={"user_id": "another-user"},
+            )
+
+    response = asyncio.run(execute_flow())
+
+    assert response.status_code == 403
 
 
 def test_booking_api_does_not_invent_an_option_from_an_ai_plan() -> None:

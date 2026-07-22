@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -10,6 +10,7 @@ from app.domain.models import (
     CandidateSelection,
     ClarificationReply,
     Intent,
+    IntentTask,
     ModifyAnalysis,
     NextAction,
     Phase1Research,
@@ -27,6 +28,7 @@ class AgentRunRequest(BaseModel):
     conversation_id: str = Field(min_length=1, max_length=128)
     user_id: str = Field(min_length=1, max_length=128)
     message: str = Field(min_length=1, max_length=10_000)
+    ignore_user_preferences: bool = False
 
 
 class AgentResumeRequest(BaseModel):
@@ -38,6 +40,7 @@ class AgentResumeRequest(BaseModel):
 class AgentRunResponse(BaseModel):
     conversation_id: str
     intent: Intent
+    intent_tasks: list[IntentTask] = Field(default_factory=list)
     next_action: NextAction
     entities: TravelEntities = Field(default_factory=TravelEntities)
     checkpoint_version: int
@@ -64,6 +67,7 @@ class AgentRunResponse(BaseModel):
     modification_errors: list[str] = Field(default_factory=list)
     selected_tools: list[str] = Field(default_factory=list)
     tool_results: dict[str, ToolResult] = Field(default_factory=dict)
+    query_task_results: dict[str, dict[str, ToolResult]] = Field(default_factory=dict)
     tool_errors: list[ToolError] = Field(default_factory=list)
     tool_attempts: dict[str, int] = Field(default_factory=dict)
     planning_errors: list[str] = Field(default_factory=list)
@@ -74,6 +78,28 @@ class AgentRunResponse(BaseModel):
     interrupt_id: str | None = None
     interrupt_payload: dict[str, Any] | None = None
     reply: str | None = None
+
+
+class AgentRunAccepted(BaseModel):
+    run_id: str
+    conversation_id: str
+    status: Literal["QUEUED", "RUNNING"]
+
+
+class AgentRunJobResponse(BaseModel):
+    run_id: str
+    conversation_id: str
+    status: Literal["QUEUED", "RUNNING", "COMPLETED", "FAILED"]
+    stage: str
+    progress: int = Field(ge=0, le=100)
+    detail: str
+    model_mode: str = "unknown"
+    started_at: str | None = None
+    completed_at: str | None = None
+    duration_ms: int | None = None
+    node_timings: dict[str, int] = Field(default_factory=dict)
+    result: AgentRunResponse | None = None
+    error: str | None = None
 
 
 class HealthResponse(BaseModel):

@@ -36,14 +36,32 @@ class HardValidator:
         self._validate_hotel_nights(plan, errors)
         self._validate_dates(plan, entities, errors)
         self._validate_budget(plan, entities, errors, warnings)
+        self._validate_content_integrity(plan, errors)
         self._validate_schedule(plan, phase2, errors, warnings)
-        self._validate_routes(phase2, errors)
+        self._validate_routes(phase2, errors, warnings)
         self._validate_cost_sum(plan, errors, warnings)
         return HardValidationResult(
             hard_pass=not errors,
             errors=errors,
             warnings=warnings,
         )
+
+    @staticmethod
+    def _validate_content_integrity(
+        plan: TravelPlan,
+        errors: list[ValidationIssue],
+    ) -> None:
+        for day in plan.days:
+            for item in day.items:
+                if re.search(r"第\s*\d+\s*项当地体验", item.name):
+                    errors.append(
+                        ValidationIssue(
+                            code="PLACEHOLDER_ITINERARY_ITEM",
+                            message=f"{item.name} 是占位内容，不能保存为正式行程",
+                            day_index=day.day_index,
+                            item_id=item.item_id,
+                        )
+                    )
 
     @staticmethod
     def _validate_duration(
@@ -182,11 +200,20 @@ class HardValidator:
                         )
                     )
                 previous_end = max(previous_end, end) if previous_end else end
-                if item.travel_minutes > 180:
+                if item.travel_minutes > 360:
                     errors.append(
                         ValidationIssue(
                             code="TRAVEL_TIME_EXCESSIVE",
-                            message=f"前往 {item.name} 的交通时间超过 180 分钟",
+                            message=f"前往 {item.name} 的单段交通时间超过 360 分钟",
+                            day_index=day.day_index,
+                            item_id=item.item_id,
+                        )
+                    )
+                elif item.travel_minutes > 180:
+                    warnings.append(
+                        ValidationIssue(
+                            code="LONG_TRANSFER_DAY",
+                            message=f"前往 {item.name} 需要较长转场，请确认当天活动量合理",
                             day_index=day.day_index,
                             item_id=item.item_id,
                         )
@@ -236,15 +263,23 @@ class HardValidator:
     def _validate_routes(
         phase2: Phase2Research | None,
         errors: list[ValidationIssue],
+        warnings: list[ValidationIssue],
     ) -> None:
         if phase2 is None:
             return
         for leg in phase2.route_legs:
-            if leg.duration_minutes > 180 or leg.distance_km > 100:
+            if leg.duration_minutes > 360 or leg.distance_km > 450:
                 errors.append(
                     ValidationIssue(
                         code="ROUTE_UNREASONABLE",
                         message=f"{leg.from_id} 到 {leg.to_id} 的路线距离或耗时过大",
+                    )
+                )
+            elif leg.duration_minutes > 180 or leg.distance_km > 100:
+                warnings.append(
+                    ValidationIssue(
+                        code="LONG_ROUTE_TRANSFER",
+                        message=f"{leg.from_id} 到 {leg.to_id} 是长距离转场，需为当天预留时间",
                     )
                 )
 

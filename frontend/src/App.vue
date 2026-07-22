@@ -162,22 +162,28 @@
             </button>
           </div>
 
-          <div class="section-heading compact">
+          <div v-if="featuredTrip" class="section-heading compact">
             <div>
-              <span>即将出发</span>
-              <h2>成都松弛感 3 日游</h2>
+              <span>{{ tripStatus(featuredTrip).label }}</span>
+              <h2>{{ featuredTrip.title }}</h2>
             </div>
-            <button type="button" @click="go('trip')">查看</button>
+            <button type="button" @click="openSavedTrip(featuredTrip)">查看</button>
           </div>
 
-          <button class="upcoming-trip" type="button" @click="go('trip')">
-            <span class="trip-date"><strong>18</strong><small>JUL</small></span>
+          <button v-if="featuredTrip" class="upcoming-trip" type="button" @click="openSavedTrip(featuredTrip)">
+            <span class="trip-date"><strong>{{ tripDateParts(featuredTrip).day }}</strong><small>{{ tripDateParts(featuredTrip).month }}</small></span>
             <span class="trip-route">
-              <strong>南京 <el-icon><Right /></el-icon> 成都</strong>
-              <small>3 天 2 晚 · 2 人 · 预算约 3,200 元</small>
+              <strong>{{ featuredTrip.destination }} <el-icon><Right /></el-icon> 出发</strong>
+              <small>{{ featuredTrip.days || '待定' }} 天 · {{ featuredTrip.peopleCount || 1 }} 人 · {{ formatTripMoney(featuredTrip.totalBudget) }}</small>
               <span class="progress-track"><i></i></span>
             </span>
-            <span class="trip-ready">待预订 3</span>
+            <span class="trip-ready">{{ featuredTrip.planType === 'AI' ? 'AI 方案' : '基础方案' }}</span>
+          </button>
+
+          <button v-else class="home-empty-trip" type="button" @click="go('trips')">
+            <span><el-icon><Calendar /></el-icon></span>
+            <span><strong>还没有保存的行程</strong><small>从行程页主动创建第一份计划</small></span>
+            <el-icon><ArrowRight /></el-icon>
           </button>
         </section>
 
@@ -195,9 +201,9 @@
             <button type="button" aria-label="查看会话记录" @click="openConversationHistory"><el-icon><EditPen /></el-icon></button>
           </div>
 
-          <div class="skip-preferences" v-if="latestAgentPreferences && hasActivePreferences">
+          <div v-if="latestAgentPreferences && hasActivePreferences" class="skip-preferences">
             <label class="skip-toggle">
-              <input type="checkbox" v-model="skipPreferencesThisTurn" @change="onSkipPreferencesToggle" />
+              <input v-model="skipPreferencesThisTurn" type="checkbox" @change="onSkipPreferencesToggle" />
               <span>这次不用历史偏好</span>
             </label>
           </div>
@@ -222,25 +228,36 @@
               <div v-if="turn.loading" class="message assistant" aria-live="polite">
                 <span class="assistant-avatar"><el-icon><Compass /></el-icon></span>
                 <div class="agent-live-status">
-                  <div>
-                    <el-icon class="spin"><Loading /></el-icon>
-                    <span>{{ turn.loadingPhase || 'Agent 正在处理' }}</span>
+                  <div class="agent-live-heading">
+                    <span class="agent-spinner" aria-hidden="true"></span>
+                    <div>
+                      <strong>{{ turn.progressSteps?.[turn.progressIndex]?.label || '正在理解你的需求' }}</strong>
+                      <small>{{ turn.progressElapsed || 0 }} 秒</small>
+                    </div>
                   </div>
-                  <p>{{ turn.loadingSubtext || '识别意图并调用本次需要的工具' }}</p>
-                  <span class="loading-track"><i></i></span>
+                  <p>{{ turn.progressSteps?.[turn.progressIndex]?.detail || '正在准备本次需要的处理步骤' }}</p>
+                  <ol class="agent-progress-list" aria-label="Agent 处理进度">
+                    <li
+                      v-for="(step, index) in turn.progressSteps"
+                      :key="step.label"
+                      :class="{ done: index < turn.progressIndex, active: index === turn.progressIndex }"
+                    >
+                      <span>
+                        <el-icon v-if="index < turn.progressIndex"><Check /></el-icon>
+                        <i v-else></i>
+                      </span>
+                      <strong>{{ step.shortLabel }}</strong>
+                    </li>
+                  </ol>
                 </div>
               </div>
 
               <div v-else-if="turn.error" class="message assistant">
                 <span class="assistant-avatar"><el-icon><Compass /></el-icon></span>
                 <div class="message-body agent-error" role="alert">
-                  <strong>{{ turn.errorTitle || '这次没有处理成功' }}</strong>
+                  <strong>这次没有处理成功</strong>
                   <p>{{ turn.error }}</p>
-                  <div class="error-actions">
-                    <button type="button" @click="retryAgentTurn(turn)"><el-icon><Refresh /></el-icon>重新尝试</button>
-                    <button v-if="turn.retryable !== false" type="button" @click="handleAgentTimeoutFallback(turn)">用简化模式重试</button>
-                  </div>
-                  <small v-if="turn.errorCode">{{ turn.errorCode }}</small>
+                  <button type="button" @click="retryAgentTurn(turn)">重新尝试</button>
                 </div>
               </div>
 
@@ -249,6 +266,42 @@
                 <article class="message-body result-message">
                   <span class="result-kicker">{{ turn.response.kicker }}</span>
                   <h3>{{ turn.response.title }}</h3>
+
+                  <section
+                    v-if="turn.response.intent === 'weather_query' && turn.response.weather"
+                    class="agent-weather"
+                    aria-label="实时天气"
+                  >
+                    <div class="weather-now">
+                      <span class="weather-symbol" :class="weatherTone(turn.response.weather.code)">
+                        <el-icon><component :is="weatherIcon(turn.response.weather.code)" /></el-icon>
+                      </span>
+                      <div class="weather-temperature">
+                        <strong>{{ formatTemperature(turn.response.weather.temperature) }}°</strong>
+                        <span>{{ turn.response.weather.condition }}</span>
+                      </div>
+                      <div class="weather-place">
+                        <span><i></i>实时</span>
+                        <strong>{{ turn.response.weather.location }}</strong>
+                      </div>
+                    </div>
+
+                    <div class="weather-facts">
+                      <span><small>体感</small><strong>{{ formatTemperature(turn.response.weather.apparentTemperature) }}°</strong></span>
+                      <span><small>降雨</small><strong>{{ formatPercent(turn.response.weather.rainProbability) }}</strong></span>
+                      <span><small>风速</small><strong>{{ formatWind(turn.response.weather.windSpeed) }}</strong></span>
+                    </div>
+
+                    <div v-if="turn.response.weather.daily.length" class="weather-forecast">
+                      <span v-for="day in turn.response.weather.daily" :key="day.date">
+                        <small>{{ formatWeatherDate(day.date) }}</small>
+                        <el-icon><component :is="weatherIcon(day.code)" /></el-icon>
+                        <strong>{{ formatTemperature(day.max) }}° / {{ formatTemperature(day.min) }}°</strong>
+                      </span>
+                    </div>
+                    <small class="weather-source">{{ turn.response.weather.sourceLabel }}</small>
+                  </section>
+
                   <p class="agent-reply">{{ turn.response.message }}</p>
 
                   <div v-if="turn.response.metrics.length" class="result-stats">
@@ -285,6 +338,49 @@
                   <div v-if="turn.response.tools.length" class="agent-tools" aria-label="本次调用工具">
                     <span v-for="tool in turn.response.tools" :key="tool"><el-icon><CircleCheck /></el-icon>{{ tool }}</span>
                   </div>
+
+                  <section v-if="turn.response.knowledge" class="agent-knowledge-proof" aria-label="知识库检索依据">
+                    <div class="knowledge-proof-heading">
+                      <span><el-icon><Reading /></el-icon></span>
+                      <div>
+                        <small><i></i>已使用审核知识库</small>
+                        <strong>{{ turn.response.knowledge.modeLabel }}</strong>
+                      </div>
+                    </div>
+                    <div class="knowledge-proof-stats">
+                      <span><small>检索命中</small><strong>{{ turn.response.knowledge.hitCount }} 个分块</strong></span>
+                      <span v-if="turn.response.knowledge.groundedCount"><small>来源绑定</small><strong>{{ turn.response.knowledge.groundedCount }} 个候选</strong></span>
+                    </div>
+                    <div v-if="turn.response.knowledge.sources.length" class="knowledge-proof-sources">
+                      <a
+                        v-for="source in turn.response.knowledge.sources"
+                        :key="source.url"
+                        :href="source.url"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <span>{{ source.title }}</span><el-icon><ArrowRight /></el-icon>
+                      </a>
+                    </div>
+                    <small class="knowledge-proof-note">景点候选与知识文档 ID 已绑定，模型仅负责筛选、组织和规划。</small>
+                  </section>
+
+                  <section v-if="turn.response.route" class="agent-route-proof" aria-label="OSRM 在线道路测算">
+                    <div class="route-proof-heading">
+                      <span><el-icon><MapLocation /></el-icon></span>
+                      <div>
+                        <small><i></i>{{ turn.response.route.sourceLabel }}</small>
+                        <strong>{{ turn.response.route.totalDistance }} km · 约 {{ turn.response.route.totalDuration }} 分钟</strong>
+                      </div>
+                    </div>
+                    <ol>
+                      <li v-for="leg in turn.response.route.legs" :key="leg.fromId + '-' + leg.toId">
+                        <span>{{ leg.fromName }} <el-icon><Right /></el-icon> {{ leg.toName }}</span>
+                        <strong>{{ leg.distance }} km · {{ leg.duration }} 分钟</strong>
+                      </li>
+                    </ol>
+                    <small class="route-proof-note">按道路驾车测算，实际时间会受实时路况影响</small>
+                  </section>
 
                   <div v-if="turn.response.planPreview.length" class="agent-plan-preview">
                     <div v-for="day in turn.response.planPreview" :key="day.dayIndex">
@@ -366,10 +462,99 @@
           </div>
         </section>
 
+        <section v-show="activePage === 'trips'" class="screen trip-library-screen">
+          <header class="trip-library-header">
+            <div>
+              <span>MY JOURNEYS</span>
+              <h1>我的行程</h1>
+              <p>保存的方案都在这里，随时查看或继续调整。</p>
+            </div>
+            <button class="trip-create-button" type="button" aria-label="新建行程" @click="createTripFromManager">
+              <el-icon><Plus /></el-icon>
+            </button>
+          </header>
+
+          <div class="trip-library-summary" aria-label="行程概览">
+            <div><strong>{{ tripPlans.length }}</strong><small>全部行程</small></div>
+            <div><strong>{{ upcomingTripCount }}</strong><small>待出发</small></div>
+            <button type="button" aria-label="刷新行程" :disabled="tripListLoading" @click="loadTripPlans(true)">
+              <el-icon :class="{ spin: tripListLoading }"><Refresh /></el-icon>
+              <span>同步</span>
+            </button>
+          </div>
+
+          <div class="trip-filter" role="tablist" aria-label="筛选行程">
+            <button
+              v-for="filter in tripFilters"
+              :key="filter.value"
+              type="button"
+              role="tab"
+              :aria-selected="tripFilter === filter.value"
+              :class="{ active: tripFilter === filter.value }"
+              @click="tripFilter = filter.value"
+            >
+              {{ filter.label }}
+            </button>
+          </div>
+
+          <div v-if="tripListLoading" class="trip-list-skeleton" aria-label="正在加载行程">
+            <div v-for="index in 3" :key="index"><i></i><span><b></b><b></b><b></b></span></div>
+          </div>
+
+          <div v-else-if="tripListError" class="trip-library-empty" role="alert">
+            <span><el-icon><Refresh /></el-icon></span>
+            <h2>行程暂时没有同步成功</h2>
+            <p>{{ tripListError }}</p>
+            <button type="button" @click="loadTripPlans(true)">重新加载</button>
+          </div>
+
+          <div v-else-if="!filteredTripPlans.length" class="trip-library-empty">
+            <span><el-icon><SuitcaseLine /></el-icon></span>
+            <h2>{{ tripPlans.length ? '这个分类还没有行程' : '从一次想出发开始' }}</h2>
+            <p>{{ tripPlans.length ? '换个分类看看，或让 AI 新规划一份。' : '告诉 AI 目的地、时间和预算，完成的方案会自动收进这里。' }}</p>
+            <button type="button" @click="createTripFromManager"><el-icon><MagicStick /></el-icon> 规划新行程</button>
+          </div>
+
+          <div v-else class="saved-trip-list">
+            <article v-for="item in filteredTripPlans" :key="item.key" class="saved-trip-item">
+              <button class="saved-trip-main" type="button" @click="openSavedTrip(item)">
+                <span class="saved-trip-cover" :style="tripCoverStyle(item)">
+                  <small>{{ item.planType === 'AI' ? 'AI' : '基础' }}</small>
+                </span>
+                <span class="saved-trip-copy">
+                  <span class="saved-trip-topline">
+                    <small :class="tripStatus(item).tone">{{ tripStatus(item).label }}</small>
+                    <em v-if="item.version > 1">V{{ item.version }}</em>
+                  </span>
+                  <strong>{{ item.title }}</strong>
+                  <span class="saved-trip-meta">
+                    <small><el-icon><Calendar /></el-icon>{{ tripDateLabel(item) }}</small>
+                    <small><el-icon><User /></el-icon>{{ item.peopleCount || 1 }} 人</small>
+                  </span>
+                </span>
+                <el-icon class="saved-trip-arrow"><ArrowRight /></el-icon>
+              </button>
+              <div class="saved-trip-footer">
+                <span>{{ item.days || '待定' }} 天 · {{ formatTripMoney(item.totalBudget) }}</span>
+                <button v-if="item.planType === 'AI'" type="button" @click="continueSavedTrip(item)">
+                  <el-icon><ChatDotRound /></el-icon> 继续调整
+                </button>
+                <span v-else>数据库方案</span>
+              </div>
+            </article>
+          </div>
+
+          <button class="trip-library-cta" type="button" @click="createTripFromManager">
+            <el-icon><MagicStick /></el-icon>
+            <span><strong>让 AI 规划新行程</strong><small>从目的地、预算和偏好开始</small></span>
+            <el-icon><ArrowRight /></el-icon>
+          </button>
+        </section>
+
         <section v-show="activePage === 'trip'" class="screen trip-screen">
-          <div class="trip-cover">
+          <div class="trip-cover" :style="tripDetailCoverStyle">
             <div class="trip-cover-actions">
-              <button class="image-button" type="button" aria-label="返回" @click="go('home')"><el-icon><Back /></el-icon></button>
+              <button class="image-button" type="button" aria-label="返回行程列表" @click="go('trips')"><el-icon><Back /></el-icon></button>
               <div>
                 <button class="image-button" type="button" aria-label="收藏" @click="showToast('已收藏这份行程')"><el-icon><Star /></el-icon></button>
                 <button class="image-button" type="button" aria-label="更多"><el-icon><MoreFilled /></el-icon></button>
@@ -378,7 +563,7 @@
             <div class="trip-cover-copy">
               <span class="plan-status"><i></i> 方案已完成</span>
               <h1>{{ plan?.title || '成都松弛感 3 日游' }}</h1>
-              <p>{{ plan?.days || 3 }} 天 {{ (plan?.days || 3) - 1 }} 晚 · {{ plan?.peopleCount || 2 }} 人 · {{ budgetLabel }}</p>
+              <p>{{ plan?.days || 0 }} 天 {{ Math.max((plan?.days || 0) - 1, 0) }} 晚 · {{ plan?.peopleCount || 1 }} 人 · {{ planBudgetLabel }}</p>
             </div>
           </div>
 
@@ -388,13 +573,30 @@
             <div><span><el-icon><Tickets /></el-icon></span><small>待预订</small><strong>{{ pendingBookingCount }} 项</strong></div>
           </div>
 
+          <section v-if="plan?.route" class="trip-route-proof" aria-label="真实路线测算">
+            <div class="trip-route-proof-heading">
+              <span><el-icon><MapLocation /></el-icon></span>
+              <div>
+                <small>{{ plan.route.sourceLabel }}</small>
+                <strong>{{ plan.route.totalDistance }} km · 约 {{ plan.route.totalDuration }} 分钟</strong>
+              </div>
+            </div>
+            <div class="trip-route-legs">
+              <div v-for="leg in plan.route.legs" :key="leg.fromId + '-' + leg.toId">
+                <span>{{ leg.fromName }} <el-icon><Right /></el-icon> {{ leg.toName }}</span>
+                <strong>{{ leg.distance }} km · {{ leg.duration }} 分钟</strong>
+              </div>
+            </div>
+            <p>OSRM 道路测算 · 实际时间会受出行方式与实时路况影响</p>
+          </section>
+
           <div class="agent-note">
             <span><el-icon><MagicStick /></el-icon></span>
             <div>
               <strong>这样安排更适合你</strong>
               <p>{{ planReasonText }}</p>
             </div>
-            <button type="button" aria-label="让 AI 修改行程" @click="go('chat')"><el-icon><EditPen /></el-icon></button>
+            <button type="button" aria-label="让 AI 修改行程" @click="continueCurrentPlan"><el-icon><EditPen /></el-icon></button>
           </div>
 
           <div class="day-tabs" role="tablist" aria-label="选择行程日期">
@@ -461,7 +663,7 @@
           </div>
 
           <div class="trip-bottom-action">
-            <button type="button" @click="go('chat')"><el-icon><ChatDotRound /></el-icon><span>让 AI 修改</span></button>
+            <button type="button" @click="continueCurrentPlan"><el-icon><ChatDotRound /></el-icon><span>让 AI 修改</span></button>
             <button type="button" class="book-all" @click="showToast(`已生成 ${pendingBookingCount} 项预订清单`)">查看预订清单</button>
           </div>
         </section>
@@ -569,7 +771,7 @@
               <el-icon><ArrowRight /></el-icon>
             </button>
             <div class="profile-tags">
-              <span v-if="!preferenceTagsDisplay.length">还没有旅行偏好，去聊天页让 AI 了解你</span>
+              <span v-if="!preferenceTagsDisplay.length">和 AI 多聊几次，形成旅行画像</span>
               <span v-for="tag in preferenceTagsDisplay" :key="tag">{{ tag }}</span>
             </div>
           </header>
@@ -645,33 +847,30 @@
 
           <div class="preferences-intro">
             <span><el-icon><MagicStick /></el-icon></span>
-            <div><strong>AI 会从对话中学习你的习惯</strong><p>带有"以后""通常""习惯"标记的表达会被记住，你也可以手动管理。</p></div>
+            <div><strong>AI 会从对话中学习你的习惯</strong><p>带有“以后”“通常”“习惯”标记的表达会被记住，你也可以手动管理。</p></div>
           </div>
 
           <div v-if="!managedPreferences.length" class="preferences-empty">
             <span><el-icon><UserFilled /></el-icon></span>
             <h3>还没有保存的旅行偏好</h3>
-            <p>去聊天页多说几次你的习惯，比如"我以后都优先选高铁"、"我通常不喜欢太赶的行程"</p>
+            <p>可以告诉 AI：“我以后都优先选高铁”或“我通常不喜欢太赶的行程”。</p>
             <button type="button" @click="go('chat')">去和 AI 聊聊</button>
           </div>
 
           <div v-else class="preferences-list">
-            <article v-for="(pref, index) in managedPreferences" :key="index" class="preference-item">
+            <article v-for="(pref, index) in managedPreferences" :key="`${pref.type}-${pref.label}`" class="preference-item">
               <span class="pref-icon">
                 <el-icon v-if="pref.type === 'like'"><CircleCheck /></el-icon>
                 <el-icon v-else><CircleClose /></el-icon>
               </span>
-              <div class="pref-content">
-                <strong>{{ pref.label }}</strong>
-                <small>{{ pref.source || '从对话中学习' }}</small>
-              </div>
+              <div class="pref-content"><strong>{{ pref.label }}</strong><small>{{ pref.source }}</small></div>
               <button type="button" class="pref-delete" aria-label="删除这个偏好" @click="removePreference(index)">
                 <el-icon><Delete /></el-icon>
               </button>
             </article>
           </div>
 
-          <div class="preferences-actions" v-if="managedPreferences.length">
+          <div v-if="managedPreferences.length" class="preferences-actions">
             <button type="button" class="secondary-button" @click="clearAllPreferences">
               <el-icon><Delete /></el-icon> 清除全部偏好
             </button>
@@ -686,7 +885,7 @@
         <button type="button" class="ai-tab" :class="{ active: activePage === 'chat' || activePage === 'sessions' }" @click="go('chat')">
           <el-icon><MagicStick /></el-icon><span>AI 助手</span>
         </button>
-        <button type="button" :class="{ active: activePage === 'trip' }" @click="go('trip')">
+        <button type="button" :class="{ active: activePage === 'trips' || activePage === 'trip' }" @click="go('trips')">
           <el-icon><MapLocation /></el-icon><span>行程</span>
         </button>
         <button type="button" :class="{ active: activePage === 'mine' }" @click="go('mine')">
@@ -702,7 +901,7 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import {
   ArrowDown,
   ArrowRight,
@@ -714,22 +913,28 @@ import {
   ChatDotRound,
   Check,
   CircleCheck,
+  CircleClose,
   CircleCheckFilled,
+  Cloudy,
   Compass,
   Delete,
   EditPen,
+  Drizzling,
   Food,
   House,
   Loading,
+  Lightning,
   Location,
   Lock,
   MagicStick,
   MapLocation,
   MoreFilled,
   OfficeBuilding,
+  PartlyCloudy,
   Plus,
   Position,
   Refresh,
+  Reading,
   Right,
   Search,
   Setting,
@@ -774,6 +979,11 @@ const spots = ref([])
 const foods = ref([])
 const hotels = ref([])
 const plan = ref(null)
+const tripPlans = ref([])
+const tripListLoading = ref(false)
+const tripListError = ref('')
+const tripFilter = ref('ALL')
+const activeTripConversationId = ref('')
 const generateLoading = ref(false)
 const aiInput = ref('')
 const toastText = ref('')
@@ -793,6 +1003,7 @@ const selectedDayNo = ref(1)
 const bookingItem = ref('')
 let toastTimer = null
 let chatTurnId = 0
+let agentProgressTimer = null
 const skipPreferencesThisTurn = ref(false)
 
 const hasActivePreferences = computed(() => {
@@ -807,11 +1018,9 @@ const hasActivePreferences = computed(() => {
 })
 
 function onSkipPreferencesToggle() {
-  if (skipPreferencesThisTurn.value) {
-    showToast('本次对话将忽略历史偏好，只按你说的来')
-  } else {
-    showToast('已恢复使用历史偏好')
-  }
+  showToast(skipPreferencesThisTurn.value
+    ? '下一条需求将忽略历史偏好，只按你说的来'
+    : '已恢复使用历史偏好')
 }
 
 const loginForm = reactive({
@@ -838,6 +1047,13 @@ const budgetOptions = [
   { value: 'LOW', label: '省着玩', hint: '¥800/天内' },
   { value: 'MEDIUM', label: '刚刚好', hint: '¥800-1500/天' },
   { value: 'HIGH', label: '住好一点', hint: '¥1500/天起' }
+]
+
+const tripFilters = [
+  { value: 'ALL', label: '全部' },
+  { value: 'UPCOMING', label: '待出发' },
+  { value: 'FLEXIBLE', label: '日期待定' },
+  { value: 'COMPLETED', label: '已结束' }
 ]
 
 const preferenceTags = [
@@ -961,11 +1177,20 @@ const selectedGuide = computed(() => guideData[selectedCityKey.value] || guideDa
 const selectedCity = computed(() => displayCities.value.find((city) => city.key === selectedCityKey.value) || displayCities.value[0])
 const currentAvatar = computed(() => findAvatar(currentUser.value?.avatarUrl))
 const selectedProfileAvatar = computed(() => findAvatar(profileForm.avatarUrl))
-const showTabbar = computed(() => ['home', 'dest', 'food', 'trip', 'sessions', 'mine'].includes(activePage.value))
+const showTabbar = computed(() => ['home', 'dest', 'food', 'trips', 'trip', 'sessions', 'mine'].includes(activePage.value))
 const activeConversationTitle = computed(() => {
   return conversationList.value.find((item) => item.conversationId === currentConversationId.value)?.title || 'AI 旅行助手'
 })
 const budgetLabel = computed(() => budgetOptions.find((option) => option.value === planForm.budgetLevel)?.label || '预算适中')
+const planBudgetLabel = computed(() => budgetOptions.find((option) => option.value === plan.value?.budgetLevel)?.label || '预算已估算')
+const filteredTripPlans = computed(() => {
+  if (tripFilter.value === 'ALL') return tripPlans.value
+  return tripPlans.value.filter((item) => tripStatus(item).value === tripFilter.value)
+})
+const upcomingTripCount = computed(() => tripPlans.value.filter((item) => tripStatus(item).value === 'UPCOMING').length)
+const featuredTrip = computed(() => {
+  return tripPlans.value.find((item) => tripStatus(item).value === 'UPCOMING') || tripPlans.value[0] || null
+})
 const profileSummary = computed(() => {
   const preferences = latestAgentPreferences.value
   if (!preferences) return '还没有形成长期偏好，聊几句后我会逐步记住'
@@ -975,7 +1200,6 @@ const profileSummary = computed(() => {
   if (preferences.typical_budget_scope === 'per_person') labels.push('习惯看人均预算')
   return labels.length ? labels.slice(0, 4).join(' · ') : '偏好仍在了解中，本次明确需求会优先'
 })
-
 const preferenceTagsDisplay = computed(() => {
   const preferences = latestAgentPreferences.value
   if (!preferences) return []
@@ -1026,41 +1250,16 @@ const foodCards = computed(() => {
 
 const planDays = computed(() => {
   if (plan.value?.dayPlans?.length) return plan.value.dayPlans
-  return [
-    {
-      dayNo: 1,
-      title: 'Day 1 · 7 月 18 日',
-      items: [
-        { itemType: 'TRANSPORT', title: '高铁抵达成都东站', description: '抵达后乘地铁前往春熙路，先寄存行李。', startTime: '09:42', address: '成都东站', duration: '约 35 分钟', cost: 12 },
-        { itemType: 'FOOD', title: '张老二凉粉', description: '用甜水面、凉粉和冰粉作为成都第一顿，分量不会太撑。', startTime: '11:30', address: '文殊院附近', duration: '约 1 小时', cost: 46 },
-        { itemType: 'SPOT', title: '文殊院与周边街巷', description: '先走安静的人文路线，再慢慢逛到人民公园。', startTime: '13:00', address: '青羊区文殊院街', duration: '约 2.5 小时', cost: 0 },
-        { itemType: 'HOTEL', title: '春熙路设计酒店', description: '靠近地铁 2 号线，去第二天的熊猫基地更顺。', startTime: '17:10', address: '锦江区春熙路', duration: '入住 2 晚', cost: 528 }
-      ]
-    },
-    {
-      dayNo: 2,
-      title: 'Day 2 · 7 月 19 日',
-      items: [
-        { itemType: 'SPOT', title: '成都大熊猫繁育研究基地', description: '上午活跃度更高，优先看太阳产房与成年熊猫区。', startTime: '08:30', address: '成华区熊猫大道', duration: '约 3.5 小时', cost: 55 },
-        { itemType: 'FOOD', title: '建设路小吃街', description: '选三到四样小吃共享，避免下午太撑。', startTime: '13:10', address: '成华区建设路', duration: '约 1.5 小时', cost: 90 },
-        { itemType: 'SPOT', title: '东郊记忆', description: '工业风街区适合散步与拍照，傍晚光线更柔和。', startTime: '15:10', address: '成华区建设南支路', duration: '约 2 小时', cost: 0 },
-        { itemType: 'FOOD', title: '玉林社区火锅', description: '选择鸳鸯锅，提前在线取号可减少等待。', startTime: '19:00', address: '武侯区玉林路', duration: '约 2 小时', cost: 220 }
-      ]
-    },
-    {
-      dayNo: 3,
-      title: 'Day 3 · 7 月 20 日',
-      items: [
-        { itemType: 'TRANSPORT', title: '成都到都江堰城际列车', description: '提前 35 分钟出发到犀浦站，刷证进站。', startTime: '09:10', address: '犀浦站', duration: '约 30 分钟', cost: 20 },
-        { itemType: 'SPOT', title: '都江堰景区', description: '从秦堰楼方向进入，路线以下行为主，更省体力。', startTime: '10:20', address: '都江堰市公园路', duration: '约 4 小时', cost: 80 },
-        { itemType: 'FOOD', title: '南桥河鲜与小吃', description: '返程前在南桥附近吃一顿，不再额外绕路。', startTime: '14:50', address: '都江堰南桥', duration: '约 1 小时', cost: 96 },
-        { itemType: 'TRANSPORT', title: '返回成都并前往车站', description: '预留 90 分钟机动时间，行李已寄存在酒店。', startTime: '16:20', address: '离堆公园站', duration: '约 1.5 小时', cost: 26 }
-      ]
-    }
-  ]
+  return []
 })
 
-const activeDay = computed(() => planDays.value.find((day) => Number(day.dayNo) === Number(selectedDayNo.value)) || planDays.value[0])
+const activeDay = computed(() => planDays.value.find((day) => Number(day.dayNo) === Number(selectedDayNo.value)) || planDays.value[0] || {
+  dayNo: 1,
+  title: '行程日期待定',
+  theme: '暂无安排',
+  items: []
+})
+const tripDetailCoverStyle = computed(() => tripCoverStyle({ destination: plan.value?.cityName || plan.value?.destination || '' }, true))
 const pendingBookingCount = computed(() => {
   if (Number.isFinite(plan.value?.bookableCount)) return plan.value.bookableCount
   return planDays.value.reduce(
@@ -1085,9 +1284,15 @@ const planReasonText = computed(() => {
 onMounted(async () => {
   if (isAuthenticated.value) {
     await refreshProfile()
-    if (isAuthenticated.value) await loadConversations()
+    if (isAuthenticated.value) {
+      await Promise.all([loadConversations(), loadTripPlans()])
+    }
   }
   await loadInitialData()
+})
+
+onBeforeUnmount(() => {
+  clearInterval(agentProgressTimer)
 })
 
 function findAvatar(avatarId) {
@@ -1136,6 +1341,121 @@ async function loadCityDetail() {
   }
 }
 
+async function loadTripPlans(showFeedback = false) {
+  if (!isAuthenticated.value || tripListLoading.value) return
+  tripListLoading.value = true
+  tripListError.value = ''
+  try {
+    tripPlans.value = await api.tripPlans()
+    if (showFeedback) showToast('行程已同步')
+  } catch (error) {
+    tripListError.value = error.message || '暂时无法读取已保存行程'
+    if (showFeedback) showToast(tripListError.value)
+  } finally {
+    tripListLoading.value = false
+  }
+}
+
+async function openSavedTrip(item) {
+  try {
+    if (item.planType === 'AI') {
+      const detail = await api.aiTripPlan(item.recordId)
+      plan.value = {
+        ...convertAgentPlan(detail.plan, {
+          selectedOptions: detail.selectedOptions,
+          entities: detail.entities
+        }),
+        destination: item.destination,
+        sourceType: 'AI',
+        version: detail.version
+      }
+      activeTripConversationId.value = detail.conversationId || item.conversationId || ''
+    } else {
+      plan.value = await api.tripPlan(item.recordId)
+      activeTripConversationId.value = ''
+    }
+    selectedDayNo.value = 1
+    activePage.value = 'trip'
+  } catch (error) {
+    showToast(error.message || '行程详情加载失败')
+  }
+}
+
+async function continueSavedTrip(item) {
+  if (!item.conversationId) {
+    await createNewConversation(`我想继续调整${item.title}`)
+    return
+  }
+  await openConversation(item.conversationId)
+}
+
+async function continueCurrentPlan() {
+  if (activeTripConversationId.value) {
+    await openConversation(activeTripConversationId.value)
+    return
+  }
+  await createNewConversation(`我想调整${plan.value?.title || '这份行程'}`)
+}
+
+async function createTripFromManager() {
+  await createNewConversation('我想规划一次新的旅行')
+}
+
+function tripStatus(item) {
+  if (!item?.startDate) return { value: 'FLEXIBLE', label: '日期待定', tone: 'flexible' }
+  const start = new Date(`${item.startDate}T00:00:00`)
+  const end = new Date(start)
+  end.setDate(end.getDate() + Math.max(Number(item.days || 1) - 1, 0))
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  if (end < today) return { value: 'COMPLETED', label: '已结束', tone: 'completed' }
+  return { value: 'UPCOMING', label: start.getTime() === today.getTime() ? '今天出发' : '待出发', tone: 'upcoming' }
+}
+
+function tripDateLabel(item) {
+  if (!item?.startDate) return '日期待定'
+  return new Date(`${item.startDate}T00:00:00`).toLocaleDateString('zh-CN', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  })
+}
+
+function tripDateParts(item) {
+  if (!item?.startDate) return { day: '--', month: '待定' }
+  const date = new Date(`${item.startDate}T00:00:00`)
+  return {
+    day: String(date.getDate()).padStart(2, '0'),
+    month: `${date.getMonth() + 1}月`
+  }
+}
+
+function formatTripMoney(value) {
+  const amount = Number(value || 0)
+  return amount > 0 ? `约 ¥${amount.toLocaleString('zh-CN', { maximumFractionDigits: 0 })}` : '预算待定'
+}
+
+function tripCoverStyle(item, large = false) {
+  const destination = item?.destination || ''
+  const cityImages = [
+    ['成都', '/oneclick-trip-assets/chengdu-destination.png'],
+    ['杭州', '/oneclick-trip-assets/hangzhou-west-lake.png'],
+    ['西安', '/oneclick-trip-assets/xian-city-wall.png'],
+    ['大理', '/oneclick-trip-assets/dali-erhai.png']
+  ]
+  const matched = cityImages.find(([city]) => destination.includes(city))
+  if (!matched) {
+    return {
+      backgroundColor: large ? 'oklch(0.39 0.07 164)' : 'oklch(0.86 0.04 164)',
+      backgroundImage: 'none'
+    }
+  }
+  const overlay = large ? 'rgba(16, 34, 28, 0.78)' : 'rgba(16, 34, 28, 0.32)'
+  return {
+    backgroundImage: `linear-gradient(180deg, rgba(16, 34, 28, 0.08), ${overlay}), url('${matched[1]}')`
+  }
+}
+
 async function go(page) {
   if (page !== 'login' && !isAuthenticated.value) {
     activePage.value = 'login'
@@ -1148,6 +1468,16 @@ async function go(page) {
     } else {
       await createNewConversation()
     }
+    return
+  }
+  if (page === 'trips') {
+    activePage.value = 'trips'
+    await loadTripPlans()
+    return
+  }
+  if (page === 'trip' && !plan.value) {
+    activePage.value = 'trips'
+    await loadTripPlans()
     return
   }
   activePage.value = page
@@ -1225,7 +1555,7 @@ async function handleLogin() {
     backendOnline.value = true
     activePage.value = 'home'
     showToast('欢迎回来，' + (data.nickname || data.username))
-    await loadConversations()
+    await Promise.all([loadConversations(), loadTripPlans()])
     await loadInitialData()
   } catch (error) {
     loginError.value = error.message || '登录失败，请检查账号和密码'
@@ -1247,15 +1577,14 @@ const managedPreferences = computed(() => {
   const preferences = latestAgentPreferences.value
   if (!preferences) return []
   const items = []
-  for (const tag of (preferences.liked_tags || [])) {
+  for (const tag of preferences.liked_tags || []) {
     items.push({ type: 'like', label: tag, source: 'AI 从对话中学习' })
   }
-  for (const tag of (preferences.disliked_tags || [])) {
+  for (const tag of preferences.disliked_tags || []) {
     items.push({ type: 'dislike', label: tag, source: 'AI 从对话中学习' })
   }
   if (preferences.pace) {
-    const label = preferences.pace === 'relaxed' ? '慢节奏' : preferences.pace
-    items.push({ type: 'like', label, source: 'AI 从对话中学习' })
+    items.push({ type: 'like', label: preferences.pace === 'relaxed' ? '慢节奏' : preferences.pace, source: 'AI 从对话中学习' })
   }
   if (preferences.typical_budget_scope === 'per_person') {
     items.push({ type: 'like', label: '习惯看人均预算', source: 'AI 从对话中学习' })
@@ -1266,26 +1595,19 @@ const managedPreferences = computed(() => {
 function removePreference(index) {
   const pref = managedPreferences.value[index]
   if (!pref) return
-  // Send a message to the AI to remove this preference
   const message = pref.type === 'dislike'
-    ? `以后不要记住"不喜欢${pref.label}"了`
-    : `以后不要记住"喜欢${pref.label}"了`
-  // Clear current chat and send the preference removal
+    ? `以后不要记住“不喜欢${pref.label}”了`
+    : `以后不要记住“喜欢${pref.label}”了`
   activePage.value = 'chat'
-  currentConversationId.value = ''
-  chatTurns.value = []
   showToast('正在让 AI 更新偏好...')
   sendAgentMessage(message)
 }
 
 function clearAllPreferences() {
-  const confirmed = window.confirm('确定清除所有旅行偏好吗？AI 将重新了解你的习惯。')
-  if (!confirmed) return
+  if (!window.confirm('确定清除所有旅行偏好吗？AI 将重新了解你的习惯。')) return
   activePage.value = 'chat'
-  currentConversationId.value = ''
-  chatTurns.value = []
-  latestAgentPreferences.value = null
-  showToast('偏好已清除，AI 将重新了解你的习惯')
+  showToast('正在清除旅行偏好...')
+  sendAgentMessage('清除我保存的全部长期旅行偏好')
 }
 
 async function handleProfileUpdate() {
@@ -1317,6 +1639,9 @@ function logout() {
   plan.value = null
   chatTurns.value = []
   conversationList.value = []
+  tripPlans.value = []
+  tripListError.value = ''
+  activeTripConversationId.value = ''
   currentConversationId.value = ''
   resetAiConversationId()
   latestAgentPreferences.value = null
@@ -1343,7 +1668,9 @@ async function generatePlan() {
   try {
     if (backendOnline.value) plan.value = await api.generatePlan(planForm)
     selectedDayNo.value = 1
+    activeTripConversationId.value = ''
     activePage.value = 'trip'
+    await loadTripPlans(false)
     showToast(backendOnline.value ? '行程已生成' : '已生成演示行程')
   } catch (error) {
     showToast(error.message || '生成失败，请稍后重试')
@@ -1366,24 +1693,29 @@ function useSuggestion(message) {
 async function sendAgentMessage(message) {
   const text = (message || '').trim()
   if (!text || agentRequestRunning.value) return
-  if (!currentConversationId.value || skipPreferencesThisTurn.value) {
+  if (!currentConversationId.value) {
     const created = await api.createAiConversation()
     setCurrentConversation(created.conversationId)
     conversationList.value.unshift(created)
-    if (skipPreferencesThisTurn.value) {
-      chatTurns.value = []
-      latestAgentPreferences.value = null
-    }
   }
 
-  const turn = {
+  const turn = reactive({
     id: ++chatTurnId,
     userText: text,
     loading: true,
     error: '',
     response: null,
-    actionSelected: ''
-  }
+    actionSelected: '',
+    progressSteps: [
+      {
+        shortLabel: '提交任务',
+        label: '正在提交 Agent 任务',
+        detail: '准备会话上下文和本次旅行需求'
+      }
+    ],
+    progressIndex: 0,
+    progressElapsed: 0
+  })
   chatTurns.value.push(turn)
   aiInput.value = ''
   await scrollChatToBottom()
@@ -1391,70 +1723,65 @@ async function sendAgentMessage(message) {
 }
 
 async function runAgentTurn(turn) {
+  const ignoreUserPreferences = skipPreferencesThisTurn.value
+  skipPreferencesThisTurn.value = false
   agentRequestRunning.value = true
   turn.loading = true
   turn.error = ''
-  const phaseTimer = startLoadingPhases(turn)
+  startAgentProgress(turn)
   try {
-    const data = await api.aiChat(turn.userText)
-    stopLoadingPhases(phaseTimer)
-    turn.loadingPhase = '正在整理结果'
-    turn.loadingSubtext = '格式化回复中…'
+    const accepted = await api.aiChatAsync(turn.userText, ignoreUserPreferences)
+    const runId = accepted?.run_id || accepted?.runId
+    if (!runId) throw new Error('AI 任务创建失败：没有返回任务编号')
+    const data = await waitForAgentJob(runId, turn)
     turn.response = normalizeAgentResponse(data)
     latestAgentPreferences.value = data?.agentState?.user_preferences || latestAgentPreferences.value
     backendOnline.value = true
-    await loadConversations(false)
+    await Promise.all([
+      loadConversations(false),
+      data?.agentState?.plan_saved ? loadTripPlans(false) : Promise.resolve()
+    ])
   } catch (error) {
-    stopLoadingPhases(phaseTimer)
-    const msg = error.message || 'Agent 服务暂时不可用，请稍后再试'
-    turn.error = msg
-    if (msg.includes('超时') || msg.includes('timeout')) {
-      turn.errorTitle = '处理超时'
-      turn.errorCode = 'TIMEOUT'
-    } else if (msg.includes('502') || msg.includes('不可用')) {
-      turn.errorTitle = 'AI 服务暂时不可用'
-      turn.errorCode = 'SERVICE_DOWN'
-    } else if (msg.includes('网络') || msg.includes('fetch')) {
-      turn.errorTitle = '网络连接失败'
-      turn.errorCode = 'NETWORK_ERROR'
-    }
+    turn.error = error.message || 'Agent 服务暂时不可用，请稍后再试'
   } finally {
+    stopAgentProgress()
     turn.loading = false
     agentRequestRunning.value = false
     await scrollChatToBottom()
   }
 }
 
-const LOADING_PHASES = [
-  { phase: '正在理解你的需求', sub: '识别意图与提取关键信息', duration: 800 },
-  { phase: '正在研究目的地', sub: '检索天气、景点与交通信息', duration: 3000 },
-  { phase: '正在核算预算', sub: '评估费用与住宿选项', duration: 3000 },
-  { phase: '正在生成行程', sub: '编排每日路线与时间安排', duration: 3000 },
-  { phase: '正在校验质量', sub: '检查时间冲突与预算合理性', duration: 2000 },
-]
-
-function startLoadingPhases(turn) {
-  let index = 0
-  turn.loadingPhase = LOADING_PHASES[0].phase
-  turn.loadingSubtext = LOADING_PHASES[0].sub
-  const timer = setInterval(() => {
-    index = Math.min(index + 1, LOADING_PHASES.length - 1)
-    turn.loadingPhase = LOADING_PHASES[index].phase
-    turn.loadingSubtext = LOADING_PHASES[index].sub
-  }, LOADING_PHASES[Math.min(index, LOADING_PHASES.length - 2)]?.duration || 3000)
-  return timer
+async function waitForAgentJob(runId, turn) {
+  const deadline = Date.now() + 10 * 60 * 1000
+  while (Date.now() < deadline) {
+    const job = await api.aiJob(runId)
+    applyAgentJobProgress(turn, job)
+    if (job?.status === 'COMPLETED') {
+      if (!job.response) throw new Error('AI 任务完成，但没有返回处理结果')
+      return job.response
+    }
+    if (job?.status === 'FAILED') {
+      throw new Error(job.error || job.detail || 'AI Agent 执行失败')
+    }
+    await delay(800)
+  }
+  throw new Error('AI 任务执行时间过长，请稍后在当前会话中重试')
 }
 
-function stopLoadingPhases(timer) {
-  if (timer) clearInterval(timer)
+function applyAgentJobProgress(turn, job) {
+  const stage = job?.stage || '正在执行'
+  const detail = job?.detail || 'Agent 正在处理本次请求'
+  const last = turn.progressSteps[turn.progressSteps.length - 1]
+  if (last?.label === stage) {
+    last.detail = detail
+  } else {
+    turn.progressSteps.push({ shortLabel: stage, label: stage, detail })
+  }
+  turn.progressIndex = turn.progressSteps.length - 1
 }
 
-function handleAgentTimeoutFallback(turn) {
-  turn.error = ''
-  turn.response = null
-  turn.retryable = false
-  showToast('正在用简化模式处理…')
-  retryAgentTurn(turn)
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
 async function retryAgentTurn(turn) {
@@ -1480,6 +1807,10 @@ async function resumeBooking(turn, confirmed) {
   agentRequestRunning.value = true
   turn.loading = true
   turn.error = ''
+  turn.progressSteps = buildAgentProgressSteps('确认预订')
+  turn.progressIndex = 0
+  turn.progressElapsed = 0
+  startAgentProgress(turn)
   try {
     const data = await api.aiResume(confirmed)
     turn.response = normalizeAgentResponse(data)
@@ -1489,10 +1820,63 @@ async function resumeBooking(turn, confirmed) {
     turn.error = error.message || '预订确认失败，请稍后重试'
     turn.response = null
   } finally {
+    stopAgentProgress()
     turn.loading = false
     agentRequestRunning.value = false
     await scrollChatToBottom()
   }
+}
+
+function startAgentProgress(turn) {
+  stopAgentProgress()
+  turn.progressIndex = 0
+  turn.progressElapsed = 0
+  agentProgressTimer = setInterval(() => {
+    turn.progressElapsed += 1
+  }, 1000)
+}
+
+function stopAgentProgress() {
+  clearInterval(agentProgressTimer)
+  agentProgressTimer = null
+}
+
+function buildAgentProgressSteps(message) {
+  const text = message || ''
+  const step = (shortLabel, label, detail) => ({ shortLabel, label, detail })
+  if (/天气|气温|下雨|降雨|冷不冷|热不热/.test(text)) {
+    return [
+      step('理解问题', '正在理解天气问题', '识别地点和用户询问的日期'),
+      step('定位地点', '正在定位目的地', '核对城市、区县与经纬度'),
+      step('查询天气', '正在查询实时天气', '获取温度、降雨概率和风速'),
+      step('整理回答', '正在整理出行建议', '把天气数据转换成易读结论')
+    ]
+  }
+  if (/预订|购买|下单|订酒店|买票|确认/.test(text)) {
+    return [
+      step('识别需求', '正在确认预订需求', '核对预订类型和当前行程'),
+      step('检查方案', '正在检查可预订项目', '确认选项属于当前方案版本'),
+      step('创建草稿', '正在创建订单草稿', '订单提交前不会产生真实交易'),
+      step('等待结果', '正在同步预订状态', '整理下一步可执行操作')
+    ]
+  }
+  if (/规划|行程|旅游|玩\s*\d|几日游|路线/.test(text)) {
+    return [
+      step('理解需求', '正在理解旅行需求', '识别目的地、时间、人数与预算'),
+      step('读取偏好', '正在结合旅行画像', '本次明确要求优先于历史偏好'),
+      step('生成候选', '正在生成景点与住宿候选', '结合本次需求和旅行画像筛选地点'),
+      step('定位景点', '正在核对景点坐标', '为真实路线服务准备可信位置'),
+      step('路线精查', '正在调用 OSRM 计算路线', '按真实道路计算景点间距离和预计车程'),
+      step('方案校验', '正在检查行程合理性', '核对预算、节奏和时间冲突'),
+      step('生成回答', '正在整理完整方案', '把研究结果转换为可执行行程')
+    ]
+  }
+  return [
+    step('理解问题', '正在理解你的问题', '识别本次需求与上下文'),
+    step('选择能力', '正在选择处理方式', '只调用本次真正需要的能力'),
+    step('组织回答', '正在组织旅行建议', '使用已有知识与当前对话直接回答'),
+    step('检查内容', '正在检查回答', '避免把非实时信息说成实时数据')
+  ]
 }
 
 async function loadConversations(showLoading = true) {
@@ -1631,12 +2015,14 @@ function formatConversationTime(value) {
 
 function normalizeAgentResponse(data) {
   const state = data?.agentState || {}
+  const intent = data?.intent || state.intent || 'unknown'
   const currentPlan = state.current_plan || state.plan_draft || null
   const dayCount = currentPlan?.days?.length || 0
-  const destination = currentPlan?.destination
-    || state.entities?.destination
-    || state.tool_results?.weather?.data?.destination
-    || '本次旅行'
+  const weatherDestination = state.tool_results?.weather?.data?.destination
+  const destination = intent === 'weather_query'
+    ? (weatherDestination || state.entities?.destination || '目的地')
+    : (currentPlan?.destination || state.entities?.destination || weatherDestination || '本次旅行')
+  const includesPlan = ['trip_plan', 'modify_plan', 'booking'].includes(intent)
   const selectedTools = Array.isArray(state.selected_tools) ? state.selected_tools : []
   const bookableCount = currentPlan ? countBookableItems(currentPlan, state.selected_options) : 0
   const budgetFeasibility = state.budget_feasibility || null
@@ -1666,7 +2052,7 @@ function normalizeAgentResponse(data) {
         { label: '最低估算', value: formatAgentMoney(budgetFeasibility.estimated_minimum, budgetFeasibility.currency) },
         { label: '建议预算', value: formatAgentMoney(budgetFeasibility.suggested_budget, budgetFeasibility.currency) }
       ]
-    : needsInput
+    : needsInput || intent === 'weather_query'
     ? []
     : currentPlan
     ? [
@@ -1682,20 +2068,155 @@ function normalizeAgentResponse(data) {
 
   return {
     status: data?.status || 'COMPLETED',
-    intent: data?.intent || state.intent || 'unknown',
+    intent,
     interrupted: Boolean(data?.interrupted || state.interrupted),
     message: data?.message || 'Agent 已完成本次处理。',
     kicker: agentResultKicker(data, state, needsInput),
     title: agentResultTitle(data?.intent || state.intent, destination, dayCount, state, needsInput),
     metrics,
     tools: needsInput ? [] : selectedTools.map((tool) => agentToolLabel(tool)),
-    plan: currentPlan,
-    planPreview: buildPlanPreview(currentPlan),
+    plan: includesPlan ? currentPlan : null,
+    planPreview: includesPlan ? buildPlanPreview(currentPlan) : [],
+    route: normalizeAgentRoute(state),
+    knowledge: normalizeAgentKnowledge(state),
     weatherSummary: state.tool_results?.weather?.data?.summary || '',
+    weather: normalizeAgentWeather(state),
+    entities: state.entities || {},
     selectedOptions: state.selected_options || {},
     choicePrompt: clarification.choice_prompt || '选一个更接近你的答案',
     actions
   }
+}
+
+function normalizeAgentRoute(state) {
+  const result = state.tool_results?.route_matrix
+  const route = result?.data
+  const legs = Array.isArray(route?.route_legs) ? route.route_legs : []
+  if (!result?.success || result.data_mode !== 'REALTIME' || !legs.length) return null
+
+  const candidates = Array.isArray(state.phase1_research?.poi_candidates)
+    ? state.phase1_research.poi_candidates
+    : []
+  const names = new Map(candidates.map((poi) => [poi.poi_id, poi.name]))
+  const normalizedLegs = legs.map((leg) => ({
+    fromId: leg.from_id,
+    toId: leg.to_id,
+    fromName: names.get(leg.from_id) || leg.from_id,
+    toName: names.get(leg.to_id) || leg.to_id,
+    distance: Number(leg.distance_km || 0).toFixed(1),
+    duration: Math.max(1, Math.round(Number(leg.duration_minutes || 0)))
+  }))
+  const totalDistance = Number(
+    route.total_distance_km ?? legs.reduce((sum, leg) => sum + Number(leg.distance_km || 0), 0)
+  )
+  const totalDuration = Number(
+    route.total_duration_minutes ?? legs.reduce((sum, leg) => sum + Number(leg.duration_minutes || 0), 0)
+  )
+
+  return {
+    sourceLabel: result.source === 'osrm' ? 'OSRM 在线道路测算' : `${result.source || '地图服务'} 在线路线`,
+    totalDistance: totalDistance.toFixed(1),
+    totalDuration: Math.max(1, Math.round(totalDuration)),
+    legs: normalizedLegs
+  }
+}
+
+function normalizeAgentKnowledge(state) {
+  const result = state.tool_results?.knowledge_search
+  const hits = Array.isArray(result?.data?.hits) ? result.data.hits : []
+  if (!result?.success || !hits.length) return null
+  const candidates = Array.isArray(state.phase1_research?.poi_candidates)
+    ? state.phase1_research.poi_candidates
+    : []
+  const groundedCount = candidates.filter((item) => item?.source_document_ids?.length).length
+  const sources = []
+  const seenUrls = new Set()
+  for (const hit of hits) {
+    const url = hit?.source_url
+    if (!url || seenUrls.has(url)) continue
+    seenUrls.add(url)
+    sources.push({
+      url,
+      title: String(hit.text || hit.source || '知识库资料').split('\n')[0].slice(0, 38)
+    })
+    if (sources.length >= 3) break
+  }
+  return {
+    modeLabel: 'Chroma 混合检索 · BGE 重排',
+    hitCount: Number(result.data.count || hits.length),
+    groundedCount,
+    sources
+  }
+}
+
+function normalizeAgentWeather(state) {
+  const result = state.tool_results?.weather
+  const weather = result?.data
+  if (!result?.success || !weather?.current || !Array.isArray(weather.daily)) return null
+  const current = weather.current
+  const today = weather.daily[0] || {}
+  const source = result.source || weather.source || 'open-meteo'
+  return {
+    location: weather.resolved_location?.name || weather.destination || '目的地',
+    temperature: current.temperature_2m,
+    apparentTemperature: current.apparent_temperature,
+    rainProbability: today.precipitation_probability_max,
+    windSpeed: current.wind_speed_10m,
+    code: Number(current.weather_code ?? today.weather_code ?? 0),
+    condition: weatherCondition(Number(current.weather_code ?? today.weather_code ?? 0)),
+    daily: weather.daily.slice(0, 3).map((day) => ({
+      date: day.date,
+      code: Number(day.weather_code ?? 0),
+      max: day.temperature_max,
+      min: day.temperature_min
+    })),
+    sourceLabel: source.includes('nominatim')
+      ? 'Open-Meteo 实时天气 · Nominatim 定位'
+      : 'Open-Meteo 实时天气'
+  }
+}
+
+function weatherCondition(code) {
+  if (code <= 1) return '晴朗'
+  if (code === 2) return '多云'
+  if ([3, 45, 48].includes(code)) return code === 3 ? '阴天' : '有雾'
+  if (code >= 95) return '雷暴'
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return '有雨'
+  if (code >= 71 && code <= 77) return '有雪'
+  return '天气待确认'
+}
+
+function weatherIcon(code) {
+  if (code <= 1) return Sunny
+  if (code === 2) return PartlyCloudy
+  if ([3, 45, 48].includes(code)) return Cloudy
+  if (code >= 95) return Lightning
+  return Drizzling
+}
+
+function weatherTone(code) {
+  if (code <= 1) return 'sunny'
+  if (code >= 95) return 'storm'
+  if ((code >= 51 && code <= 82)) return 'rainy'
+  return 'cloudy'
+}
+
+function formatTemperature(value) {
+  return Number.isFinite(Number(value)) ? Math.round(Number(value)) : '—'
+}
+
+function formatPercent(value) {
+  return Number.isFinite(Number(value)) ? `${Math.round(Number(value))}%` : '待确认'
+}
+
+function formatWind(value) {
+  return Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)} km/h` : '待确认'
+}
+
+function formatWeatherDate(value) {
+  if (!value) return '待定'
+  const date = new Date(`${value}T00:00:00`)
+  return `${date.getMonth() + 1}/${date.getDate()}`
 }
 
 function agentResultKicker(data, state, needsInput) {
@@ -1733,9 +2254,11 @@ function agentToolLabel(tool) {
     train_search: '火车',
     flight_search: '航班',
     poi_search: '景点候选',
-    route_matrix: '路线矩阵',
+    poi_coordinates: '景点定位',
+    route_matrix: 'OSRM 路线',
     opening_hours: '开放时间',
-    ticket: '门票'
+    ticket: '门票',
+    knowledge_search: '知识库检索',
   }
   return labels[tool] || tool
 }
@@ -1744,9 +2267,16 @@ function agentDataMode(state) {
   const researchMode = state.phase2_research?.data_mode || state.phase1_research?.data_mode
   if (researchMode === 'AI_KNOWLEDGE') return 'AI 多阶段'
   if (researchMode === 'OFFLINE_FALLBACK') return '离线多阶段'
-  const result = Object.values(state.tool_results || {}).find((item) => item?.data?.data_mode)
+  if (researchMode === 'MIXED_WEB_AI') return '联网 + AI'
+  if (researchMode === 'RAG_HYBRID') return '知识库 RAG + AI'
+  const toolResults = Object.values(state.tool_results || {})
+  if (toolResults.some((item) => item?.success && item?.data_mode === 'REALTIME')) {
+    return '实时联网'
+  }
+  const result = toolResults.find((item) => item?.data_mode || item?.data?.data_mode)
   if (!result) return 'AI 生成'
-  return result?.data?.data_mode === 'MOCK' ? '接口演示' : (result?.data?.data_mode || 'AI 生成')
+  const dataMode = result?.data_mode || result?.data?.data_mode
+  return dataMode === 'MOCK' ? '接口演示' : (dataMode || 'AI 生成')
 }
 
 function countBookableItems(agentPlan, selectedOptions = {}) {
@@ -1772,6 +2302,7 @@ function buildPlanPreview(agentPlan) {
 function openAgentPlan(response) {
   if (!response.plan) return
   plan.value = convertAgentPlan(response.plan, response)
+  activeTripConversationId.value = currentConversationId.value
   selectedDayNo.value = 1
   go('trip')
 }
@@ -1781,11 +2312,12 @@ function convertAgentPlan(agentPlan, response) {
   return {
     title: `${agentPlan.destination} ${days.length} 天智能行程`,
     days: days.length,
-    peopleCount: planForm.peopleCount,
+    peopleCount: Number(response.entities?.people || planForm.peopleCount || 1),
     totalBudget: Number(agentPlan.total_cost || 0),
     summary: agentPlan.assumptions?.join('；') || '',
     agentReason: [...new Set(days.map((day) => day.summary).filter(Boolean))].join('；'),
     weatherSummary: compactWeather(response.weatherSummary),
+    route: response.route || null,
     bookableCount: countBookableItems(agentPlan, response.selectedOptions),
     dayPlans: days.map((day) => ({
       dayNo: day.day_index,

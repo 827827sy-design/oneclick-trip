@@ -1,0 +1,1405 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>一键游 AI 助手演示</title>
+  <style>
+    :root {
+      --page: #f4faf7;
+      --surface: #fbfefc;
+      --surface-2: #edf7f2;
+      --line: #d8e8df;
+      --ink: #13251f;
+      --muted: #65766f;
+      --muted-2: #8da099;
+      --accent: #0fb894;
+      --accent-strong: #079879;
+      --accent-soft: #dff7ee;
+      --sky: #e3f2ff;
+      --sun: #fff1ce;
+      --orange: #f58b45;
+      --blue: #4288d9;
+      --danger: #d86652;
+      --shadow: 0 24px 70px rgba(20, 72, 55, 0.12);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(135deg, rgba(15, 184, 148, 0.09), transparent 34%),
+        linear-gradient(210deg, rgba(245, 139, 69, 0.11), transparent 32%),
+        var(--page);
+      color: var(--ink);
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .app {
+      max-width: 1380px;
+      margin: 0 auto;
+      padding: 22px;
+    }
+
+    .topbar {
+      min-height: 68px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 18px;
+      padding: 14px 18px;
+      border: 1px solid rgba(216, 232, 223, 0.9);
+      background: rgba(251, 254, 252, 0.9);
+      box-shadow: 0 14px 34px rgba(18, 75, 58, 0.08);
+      border-radius: 22px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+      font-size: 22px;
+      box-shadow: inset 0 0 0 1px rgba(15, 184, 148, 0.18);
+    }
+
+    .brand strong {
+      display: block;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    .brand span:last-child {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .ghost,
+    .primary {
+      border: 0;
+      border-radius: 14px;
+      min-height: 42px;
+      padding: 0 16px;
+      font-weight: 700;
+      transition: transform 180ms ease, background 180ms ease, box-shadow 180ms ease;
+    }
+
+    .ghost {
+      background: var(--surface-2);
+      color: var(--ink);
+    }
+
+    .primary {
+      background: var(--accent);
+      color: #f6fffb;
+      box-shadow: 0 16px 32px rgba(15, 184, 148, 0.26);
+    }
+
+    .ghost:hover,
+    .primary:hover {
+      transform: translateY(-1px);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(340px, 430px) 1fr;
+      gap: 18px;
+      margin-top: 18px;
+      align-items: start;
+    }
+
+    .chat-panel,
+    .plan-panel,
+    .side-panel {
+      border: 1px solid var(--line);
+      background: rgba(251, 254, 252, 0.94);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+    }
+
+    .chat-panel {
+      position: sticky;
+      top: 18px;
+      overflow: hidden;
+    }
+
+    .hero-photo {
+      min-height: 178px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      background:
+        linear-gradient(180deg, rgba(11, 40, 31, 0.16), rgba(11, 40, 31, 0.7)),
+        url("../oneclick-trip-assets/travel-hero-ai.png") center 48% / cover no-repeat;
+      color: #f6fffb;
+    }
+
+    .hero-photo .label {
+      width: fit-content;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: rgba(246, 255, 251, 0.2);
+      backdrop-filter: blur(10px);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .hero-photo h1 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.15;
+      letter-spacing: 0;
+      max-width: 12em;
+    }
+
+    .prompt-box {
+      padding: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .prompt-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .prompt-box textarea {
+      width: 100%;
+      height: 98px;
+      resize: none;
+      border: 1px solid var(--line);
+      outline: none;
+      border-radius: 16px;
+      padding: 13px 14px;
+      color: var(--ink);
+      background: #f9fdfa;
+      line-height: 1.55;
+    }
+
+    .prompt-box textarea:focus {
+      border-color: rgba(15, 184, 148, 0.72);
+      box-shadow: 0 0 0 4px rgba(15, 184, 148, 0.13);
+    }
+
+    .quick-chips {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 12px 0 14px;
+    }
+
+    .chip {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--ink);
+      min-height: 32px;
+      padding: 0 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .chat-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .chat-stream {
+      height: 430px;
+      overflow: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      background: linear-gradient(180deg, rgba(237, 247, 242, 0.52), rgba(251, 254, 252, 0));
+    }
+
+    .message {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+      animation: rise 260ms ease-out both;
+    }
+
+    .message.user {
+      grid-template-columns: minmax(0, 1fr) 34px;
+    }
+
+    .avatar {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: var(--accent-soft);
+    }
+
+    .message.user .avatar {
+      background: var(--sky);
+      grid-column: 2;
+    }
+
+    .bubble {
+      padding: 11px 12px;
+      border-radius: 16px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      color: var(--ink);
+      line-height: 1.55;
+      font-size: 14px;
+    }
+
+    .message.user .bubble {
+      grid-row: 1;
+      background: var(--accent);
+      color: #f6fffb;
+      border-color: transparent;
+    }
+
+    .plan-panel {
+      overflow: hidden;
+    }
+
+    .plan-hero {
+      min-height: 250px;
+      position: relative;
+      display: grid;
+      align-content: end;
+      padding: 24px;
+      color: #f6fffb;
+      background:
+        linear-gradient(180deg, rgba(12, 37, 29, 0.06), rgba(12, 37, 29, 0.82)),
+        url("../oneclick-trip-assets/chengdu-destination.png") center 54% / cover no-repeat;
+    }
+
+    .plan-hero h2 {
+      margin: 0;
+      font-size: 34px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    .plan-hero p {
+      margin: 10px 0 0;
+      max-width: 58ch;
+      color: rgba(246, 255, 251, 0.86);
+      line-height: 1.55;
+    }
+
+    .status-line {
+      position: absolute;
+      top: 18px;
+      left: 18px;
+      right: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: rgba(246, 255, 251, 0.18);
+      backdrop-filter: blur(10px);
+      color: #f6fffb;
+      font-weight: 800;
+      font-size: 13px;
+    }
+
+    .pulse {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #80ffd8;
+      box-shadow: 0 0 0 0 rgba(128, 255, 216, 0.6);
+      animation: pulse 1.5s infinite;
+    }
+
+    .plan-body {
+      padding: 18px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .progress-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .progress-step {
+      min-height: 76px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      padding: 12px;
+      transition: background 200ms ease, border-color 200ms ease, transform 200ms ease;
+    }
+
+    .progress-step.active {
+      background: var(--accent-soft);
+      border-color: rgba(15, 184, 148, 0.42);
+      transform: translateY(-2px);
+    }
+
+    .progress-step strong {
+      display: block;
+      font-size: 13px;
+      margin: 5px 0 3px;
+    }
+
+    .progress-step span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .summary-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 14px;
+      background: var(--surface-2);
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+
+    .metric strong {
+      font-size: 19px;
+      letter-spacing: 0;
+    }
+
+    .service-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .service {
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: var(--surface);
+      padding: 16px;
+      min-height: 206px;
+      opacity: 0.54;
+      transform: translateY(6px);
+      transition: opacity 260ms ease, transform 260ms ease, border-color 260ms ease;
+    }
+
+    .service.ready {
+      opacity: 1;
+      transform: translateY(0);
+      border-color: rgba(15, 184, 148, 0.38);
+    }
+
+    .service-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .service-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 900;
+      font-size: 16px;
+    }
+
+    .icon {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: var(--accent-soft);
+    }
+
+    .state {
+      border-radius: 999px;
+      padding: 6px 9px;
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .ready .state {
+      background: var(--accent);
+      color: #f6fffb;
+    }
+
+    .service p {
+      color: var(--muted);
+      line-height: 1.55;
+      margin: 0 0 12px;
+      font-size: 14px;
+    }
+
+    .service-list {
+      display: grid;
+      gap: 9px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .service-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      color: var(--ink);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .purchase-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+    }
+
+    .purchase-row small {
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .buy-btn,
+    .order-btn {
+      min-height: 36px;
+      border: 0;
+      border-radius: 13px;
+      padding: 0 12px;
+      background: var(--ink);
+      color: #f6fffb;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .ready .buy-btn {
+      background: var(--accent);
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      margin-top: 6px;
+      flex: 0 0 auto;
+    }
+
+    .timeline {
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      overflow: hidden;
+      background: var(--surface);
+    }
+
+    .purchase-board {
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: var(--surface);
+      overflow: hidden;
+    }
+
+    .purchase-board header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px;
+      background: var(--surface-2);
+      flex-wrap: wrap;
+    }
+
+    .purchase-board h3 {
+      margin: 0;
+      font-size: 17px;
+    }
+
+    .purchase-list {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0;
+    }
+
+    .purchase-item {
+      min-height: 158px;
+      padding: 16px;
+      border-right: 1px solid var(--line);
+      display: grid;
+      align-content: space-between;
+      gap: 12px;
+      opacity: 0.58;
+      transition: opacity 220ms ease, background 220ms ease;
+    }
+
+    .purchase-item:last-child {
+      border-right: 0;
+    }
+
+    .purchase-item.ready {
+      opacity: 1;
+      background: linear-gradient(180deg, rgba(223, 247, 238, 0.64), rgba(251, 254, 252, 0));
+    }
+
+    .purchase-item strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 15px;
+    }
+
+    .purchase-item span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .purchase-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .purchase-price {
+      color: var(--accent-strong);
+      font-size: 17px;
+      font-weight: 900;
+    }
+
+    .checkout-panel {
+      display: none;
+      border: 1px solid rgba(15, 184, 148, 0.38);
+      border-radius: 22px;
+      background: linear-gradient(180deg, var(--accent-soft), var(--surface));
+      padding: 16px;
+      gap: 14px;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+    }
+
+    .checkout-panel.active {
+      display: grid;
+      animation: rise 260ms ease-out both;
+    }
+
+    .checkout-panel h3 {
+      margin: 0 0 8px;
+      font-size: 18px;
+    }
+
+    .checkout-panel p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .timeline-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px;
+      background: var(--surface-2);
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .timeline-header strong {
+      font-size: 17px;
+    }
+
+    .day-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0;
+    }
+
+    .day {
+      padding: 16px;
+      border-right: 1px solid var(--line);
+      min-height: 260px;
+    }
+
+    .day:last-child {
+      border-right: 0;
+    }
+
+    .day h3 {
+      margin: 0 0 12px;
+      font-size: 16px;
+    }
+
+    .route {
+      display: grid;
+      gap: 11px;
+    }
+
+    .route-item {
+      display: grid;
+      grid-template-columns: 48px 1fr;
+      gap: 10px;
+      align-items: start;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .route-item time {
+      color: var(--accent-strong);
+      font-weight: 900;
+    }
+
+    .budget {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 14px;
+    }
+
+    .budget-panel,
+    .food-photo {
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      overflow: hidden;
+      background: var(--surface);
+    }
+
+    .budget-panel {
+      padding: 16px;
+    }
+
+    .budget-panel h3 {
+      margin: 0 0 12px;
+      font-size: 17px;
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 64px 1fr 70px;
+      gap: 10px;
+      align-items: center;
+      margin: 11px 0;
+      font-size: 13px;
+    }
+
+    .bar {
+      height: 9px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: var(--surface-2);
+    }
+
+    .bar i {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--accent);
+    }
+
+    .food-photo {
+      min-height: 210px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      color: #f6fffb;
+      background:
+        linear-gradient(180deg, rgba(10, 38, 30, 0.03), rgba(10, 38, 30, 0.8)),
+        url("../oneclick-trip-assets/chengdu-food-hotpot.png") center / cover no-repeat;
+    }
+
+    .food-photo strong {
+      font-size: 20px;
+    }
+
+    .food-photo span {
+      margin-top: 6px;
+      color: rgba(246, 255, 251, 0.82);
+      line-height: 1.45;
+      font-size: 13px;
+    }
+
+    .assistant-footer {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .assist-action {
+      min-height: 46px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--surface);
+      color: var(--ink);
+      font-weight: 800;
+    }
+
+    .assist-action:hover {
+      border-color: rgba(15, 184, 148, 0.5);
+      color: var(--accent-strong);
+    }
+
+    .fade {
+      opacity: 0.38;
+    }
+
+    @keyframes rise {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes pulse {
+      70% {
+        box-shadow: 0 0 0 12px rgba(128, 255, 216, 0);
+      }
+      100% {
+        box-shadow: 0 0 0 0 rgba(128, 255, 216, 0);
+      }
+    }
+
+    @media (max-width: 1080px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .chat-panel {
+        position: static;
+      }
+
+      .chat-stream {
+        height: 320px;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .app {
+        padding: 12px;
+      }
+
+      .topbar,
+      .summary-row,
+      .service-grid,
+      .budget,
+      .assistant-footer,
+      .progress-grid,
+      .purchase-list,
+      .day-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .topbar {
+        align-items: start;
+      }
+
+      .top-actions,
+      .chat-actions {
+        width: 100%;
+        grid-template-columns: 1fr;
+      }
+
+      .top-actions {
+        justify-content: stretch;
+      }
+
+      .top-actions button,
+      .chat-actions button {
+        width: 100%;
+      }
+
+      .plan-hero h2 {
+        font-size: 26px;
+      }
+
+      .day {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .day:last-child {
+        border-bottom: 0;
+      }
+
+      .purchase-item {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .purchase-item:last-child {
+        border-bottom: 0;
+      }
+
+      .checkout-panel {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">🧭</span>
+        <span>
+          <strong>一键游 AI 旅行管家</strong>
+          <span>从一句话到交通、酒店、餐饮、门票、路线完整方案</span>
+        </span>
+      </div>
+      <div class="top-actions">
+        <button class="ghost" id="resetBtn" type="button">重置演示</button>
+        <button class="primary" id="topGenerateBtn" type="button">生成一条龙方案</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="chat-panel" aria-label="AI 对话演示">
+        <div class="hero-photo">
+          <span class="label">AI Agent Demo</span>
+          <h1>一句话，直接变成可出发攻略</h1>
+        </div>
+
+        <div class="prompt-box">
+          <div class="prompt-label">
+            <span>用户需求</span>
+            <span id="intentStatus">等待生成</span>
+          </div>
+          <textarea id="promptInput">从南京去成都玩 3 天 2 晚，2 个人，预算适中，喜欢美食和轻松路线，酒店想住交通方便一点。</textarea>
+          <div class="quick-chips">
+            <button class="chip" data-prompt="从南京去成都玩 3 天 2 晚，2 个人，预算适中，喜欢美食和轻松路线，酒店想住交通方便一点。">成都 3 天</button>
+            <button class="chip" data-prompt="从上海去杭州玩 2 天，想轻松逛西湖和吃本地美食，住宿靠近湖滨。">杭州 2 天</button>
+            <button class="chip" data-prompt="从广州去西安玩 4 天，偏历史文化，晚上想看夜景，预算适中。">西安 4 天</button>
+          </div>
+          <div class="chat-actions">
+            <button class="primary" id="generateBtn" type="button">开始生成</button>
+            <button class="ghost" id="refineBtn" type="button">预算降低 500</button>
+          </div>
+        </div>
+
+        <div class="chat-stream" id="chatStream"></div>
+      </section>
+
+      <section class="plan-panel" aria-label="AI 旅行方案">
+        <div class="plan-hero">
+          <div class="status-line">
+            <span class="status-pill"><i class="pulse"></i><span id="planStatus">AI 待命</span></span>
+            <span class="status-pill">成都 3 天 2 晚 · 2 人 · 预算适中</span>
+          </div>
+          <h2>南京到成都轻松美食游</h2>
+          <p id="planIntro">点击生成后，AI 会把用户需求拆成交通、住宿、餐饮、门票和每日路线，形成可演示的一条龙旅游方案。</p>
+        </div>
+
+        <div class="plan-body">
+          <section class="progress-grid" aria-label="生成进度">
+            <div class="progress-step" data-step="0">🧠<strong>理解需求</strong><span>城市、天数、偏好</span></div>
+            <div class="progress-step" data-step="1">🚄<strong>匹配交通</strong><span>往返与市内移动</span></div>
+            <div class="progress-step" data-step="2">🏨<strong>筛选酒店</strong><span>区域、价格、便利度</span></div>
+            <div class="progress-step" data-step="3">🍜<strong>安排餐饮</strong><span>午晚餐与小吃</span></div>
+            <div class="progress-step" data-step="4">🗺️<strong>生成路线</strong><span>时间线和预算</span></div>
+          </section>
+
+          <section class="summary-row">
+            <div class="metric"><span>预计总预算</span><strong id="budgetMetric">约 4200 元</strong></div>
+            <div class="metric"><span>住宿区域</span><strong>春熙路</strong></div>
+            <div class="metric"><span>主要交通</span><strong>高铁优先</strong></div>
+            <div class="metric"><span>路线节奏</span><strong>轻松</strong></div>
+          </section>
+
+          <section class="service-grid">
+            <article class="service" data-service="transport">
+              <div class="service-head">
+                <div class="service-title"><span class="icon">🚄</span>出行交通</div>
+                <span class="state">待生成</span>
+              </div>
+              <p>南京南到成都东优先高铁，抵达后市内以地铁为主，夜间短途打车。</p>
+              <ul class="service-list">
+                <li><span class="dot"></span><span>去程：南京南到成都东，建议上午出发。</span></li>
+                <li><span class="dot"></span><span>返程：第 3 天下午返回，留出午餐和伴手礼时间。</span></li>
+                <li><span class="dot"></span><span>市内：春熙路、宽窄巷子、人民公园适合地铁串联。</span></li>
+              </ul>
+              <div class="purchase-row">
+                <small>购买需求：往返高铁票，2 人</small>
+                <button class="buy-btn" type="button" data-buy="train">订交通</button>
+              </div>
+            </article>
+
+            <article class="service" data-service="hotel">
+              <div class="service-head">
+                <div class="service-title"><span class="icon">🏨</span>酒店住宿</div>
+                <span class="state">待生成</span>
+              </div>
+              <p>推荐住春熙路或太古里周边，方便夜间吃饭和地铁换乘。</p>
+              <ul class="service-list">
+                <li><span class="dot"></span><span>首选：春熙路/太古里，出行和餐饮最方便。</span></li>
+                <li><span class="dot"></span><span>备选：宽窄巷子附近，适合慢节奏散步。</span></li>
+                <li><span class="dot"></span><span>预算：约 380 到 520 元/晚。</span></li>
+              </ul>
+              <div class="purchase-row">
+                <small>购买需求：春熙路舒适型酒店，2 晚</small>
+                <button class="buy-btn" type="button" data-buy="hotel">订酒店</button>
+              </div>
+            </article>
+
+            <article class="service" data-service="food">
+              <div class="service-head">
+                <div class="service-title"><span class="icon">🍜</span>餐饮安排</div>
+                <span class="state">待生成</span>
+              </div>
+              <p>把重口味安排在晚餐，小吃穿插在景点之间，避免一天吃得太累。</p>
+              <ul class="service-list">
+                <li><span class="dot"></span><span>Day 1 晚餐：春熙路火锅或串串。</span></li>
+                <li><span class="dot"></span><span>Day 2 午餐：担担面、钟水饺、冰粉组合。</span></li>
+                <li><span class="dot"></span><span>Day 3 午餐：人民公园周边川菜馆。</span></li>
+              </ul>
+              <div class="purchase-row">
+                <small>购买需求：火锅排号/餐厅预约</small>
+                <button class="buy-btn" type="button" data-buy="food">约餐饮</button>
+              </div>
+            </article>
+
+            <article class="service" data-service="ticket">
+              <div class="service-head">
+                <div class="service-title"><span class="icon">🎫</span>门票预算</div>
+                <span class="state">待生成</span>
+              </div>
+              <p>优先选择高体验景点，免费街区用于补足轻松感和拍照时间。</p>
+              <ul class="service-list">
+                <li><span class="dot"></span><span>熊猫基地：约 55 元/人。</span></li>
+                <li><span class="dot"></span><span>杜甫草堂：约 60 元/人。</span></li>
+                <li><span class="dot"></span><span>武侯祠：约 50 元/人。</span></li>
+              </ul>
+              <div class="purchase-row">
+                <small>购买需求：景点门票，2 人</small>
+                <button class="buy-btn" type="button" data-buy="ticket">买门票</button>
+              </div>
+            </article>
+          </section>
+
+          <section class="purchase-board" aria-label="待购买清单">
+            <header>
+              <h3>待购买清单</h3>
+              <span class="state" id="purchaseState">生成方案后可购买</span>
+            </header>
+            <div class="purchase-list">
+              <article class="purchase-item" data-purchase="train">
+                <div>
+                  <strong>南京南 ⇄ 成都东</strong>
+                  <span>高铁往返，二等座，2 人</span>
+                </div>
+                <div class="purchase-meta">
+                  <span class="purchase-price">约 1600 元</span>
+                  <button class="order-btn" type="button" data-buy="train">去订票</button>
+                </div>
+              </article>
+              <article class="purchase-item" data-purchase="hotel">
+                <div>
+                  <strong>春熙路舒适酒店</strong>
+                  <span>2 晚，近地铁，适合夜间觅食</span>
+                </div>
+                <div class="purchase-meta">
+                  <span class="purchase-price">约 900 元</span>
+                  <button class="order-btn" type="button" data-buy="hotel">去订房</button>
+                </div>
+              </article>
+              <article class="purchase-item" data-purchase="ticket">
+                <div>
+                  <strong>景点门票组合</strong>
+                  <span>熊猫基地、杜甫草堂、武侯祠</span>
+                </div>
+                <div class="purchase-meta">
+                  <span class="purchase-price">约 330 元</span>
+                  <button class="order-btn" type="button" data-buy="ticket">去购票</button>
+                </div>
+              </article>
+              <article class="purchase-item" data-purchase="food">
+                <div>
+                  <strong>火锅餐厅预约</strong>
+                  <span>Day 1 晚餐，春熙路商圈</span>
+                </div>
+                <div class="purchase-meta">
+                  <span class="purchase-price">约 240 元</span>
+                  <button class="order-btn" type="button" data-buy="food">去预约</button>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="checkout-panel" id="checkoutPanel" aria-label="模拟购买接口">
+            <div>
+              <h3 id="checkoutTitle">模拟购买接口</h3>
+              <p id="checkoutDesc">点击上方购买按钮后，这里会展示对应订单摘要。正式开发时可以替换成真实下单 API。</p>
+            </div>
+            <button class="primary" id="confirmOrderBtn" type="button">确认模拟下单</button>
+          </section>
+
+          <section class="timeline">
+            <div class="timeline-header">
+              <strong>每日路线</strong>
+              <span class="state" id="routeState">等待 AI 排程</span>
+            </div>
+            <div class="day-grid">
+              <article class="day">
+                <h3>Day 1 抵达与市区夜游</h3>
+                <div class="route">
+                  <div class="route-item"><time>11:30</time><span>抵达成都东站，地铁到春熙路办理入住。</span></div>
+                  <div class="route-item"><time>15:00</time><span>太古里和春熙路轻松逛街，适应节奏。</span></div>
+                  <div class="route-item"><time>18:30</time><span>火锅晚餐，辣度建议中辣或鸳鸯锅。</span></div>
+                  <div class="route-item"><time>20:30</time><span>宽窄巷子散步，甜水面和冰粉作为补充。</span></div>
+                </div>
+              </article>
+              <article class="day">
+                <h3>Day 2 熊猫与人文</h3>
+                <div class="route">
+                  <div class="route-item"><time>08:00</time><span>前往成都大熊猫繁育研究基地，上午观赏体验更好。</span></div>
+                  <div class="route-item"><time>12:30</time><span>建设路或市区小吃午餐，控制排队时间。</span></div>
+                  <div class="route-item"><time>15:00</time><span>杜甫草堂，安排安静的人文游览。</span></div>
+                  <div class="route-item"><time>18:30</time><span>串串或川菜晚餐，回酒店不安排过远路线。</span></div>
+                </div>
+              </article>
+              <article class="day">
+                <h3>Day 3 公园慢生活与返程</h3>
+                <div class="route">
+                  <div class="route-item"><time>09:30</time><span>人民公园喝茶，体验成都慢生活。</span></div>
+                  <div class="route-item"><time>11:30</time><span>武侯祠或锦里二选一，避免行程过满。</span></div>
+                  <div class="route-item"><time>13:30</time><span>午餐后购买伴手礼，返回酒店取行李。</span></div>
+                  <div class="route-item"><time>16:00</time><span>前往成都东站或机场返程。</span></div>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="budget">
+            <div class="budget-panel">
+              <h3>预算拆分</h3>
+              <div class="bar-row"><span>交通</span><div class="bar"><i style="width: 46%"></i></div><strong>1600 元</strong></div>
+              <div class="bar-row"><span>住宿</span><div class="bar"><i style="width: 30%"></i></div><strong>900 元</strong></div>
+              <div class="bar-row"><span>餐饮</span><div class="bar"><i style="width: 26%"></i></div><strong>820 元</strong></div>
+              <div class="bar-row"><span>门票</span><div class="bar"><i style="width: 15%"></i></div><strong>330 元</strong></div>
+              <div class="bar-row"><span>市内</span><div class="bar"><i style="width: 18%"></i></div><strong>260 元</strong></div>
+            </div>
+            <div class="food-photo">
+              <strong>晚餐留给成都火锅</strong>
+              <span>AI 将重口味餐饮安排在夜间，白天用小吃和茶馆保持轻松节奏。</span>
+            </div>
+          </section>
+
+          <section class="assistant-footer">
+            <button class="assist-action" data-tweak="hotel">换安静酒店</button>
+            <button class="assist-action" data-tweak="food">加一顿川菜</button>
+            <button class="assist-action" data-tweak="transport">改成飞机往返</button>
+            <button class="assist-action" data-tweak="pace">路线更轻松</button>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const chatStream = document.querySelector("#chatStream")
+    const promptInput = document.querySelector("#promptInput")
+    const generateBtn = document.querySelector("#generateBtn")
+    const topGenerateBtn = document.querySelector("#topGenerateBtn")
+    const resetBtn = document.querySelector("#resetBtn")
+    const refineBtn = document.querySelector("#refineBtn")
+    const intentStatus = document.querySelector("#intentStatus")
+    const planStatus = document.querySelector("#planStatus")
+    const planIntro = document.querySelector("#planIntro")
+    const routeState = document.querySelector("#routeState")
+    const purchaseState = document.querySelector("#purchaseState")
+    const checkoutPanel = document.querySelector("#checkoutPanel")
+    const checkoutTitle = document.querySelector("#checkoutTitle")
+    const checkoutDesc = document.querySelector("#checkoutDesc")
+    const confirmOrderBtn = document.querySelector("#confirmOrderBtn")
+    const budgetMetric = document.querySelector("#budgetMetric")
+    const progressSteps = Array.from(document.querySelectorAll(".progress-step"))
+    const services = Array.from(document.querySelectorAll(".service"))
+    const purchaseItems = Array.from(document.querySelectorAll(".purchase-item"))
+    const buyButtons = Array.from(document.querySelectorAll("[data-buy]"))
+    const chips = Array.from(document.querySelectorAll(".chip"))
+    const tweakButtons = Array.from(document.querySelectorAll(".assist-action"))
+
+    let activeOrder = null
+
+    const flow = [
+      {
+        delay: 350,
+        step: 0,
+        text: "我已识别：南京出发，成都 3 天 2 晚，2 人，预算适中，偏好美食、轻松路线、交通方便酒店。",
+        status: "正在理解需求"
+      },
+      {
+        delay: 950,
+        step: 1,
+        service: "transport",
+        text: "出行建议优先高铁：南京南到成都东，抵达后住春熙路，市内以地铁加短途打车为主。",
+        status: "交通方案已生成"
+      },
+      {
+        delay: 1550,
+        step: 2,
+        service: "hotel",
+        text: "住宿建议锁定春熙路/太古里周边，两晚预算控制在 900 元左右，晚上吃饭和回酒店都方便。",
+        status: "酒店区域已匹配"
+      },
+      {
+        delay: 2200,
+        step: 3,
+        service: "food",
+        text: "餐饮会把火锅、串串放到晚餐，小吃和茶馆穿插在白天，这样不会为了吃饭打乱路线。",
+        status: "餐饮安排已完成"
+      },
+      {
+        delay: 2850,
+        step: 4,
+        service: "ticket",
+        text: "门票预算约 330 元，保留熊猫基地、杜甫草堂、武侯祠，免费街区用于补足轻松游览。",
+        status: "门票预算已计算"
+      },
+      {
+        delay: 3550,
+        step: 4,
+        text: "完整方案已生成：总预算约 4200 元，节奏轻松，三天覆盖熊猫、人文、美食和市区慢生活。",
+        status: "完整攻略已生成",
+        done: true
+      }
+    ]
+
+    const purchaseCatalog = {
+      train: {
+        title: "交通票购买接口",
+        name: "南京南 ⇄ 成都东高铁往返",
+        desc: "2 人二等座，建议上午出发、第三天下午返程。演示版会模拟创建交通订单。",
+        price: "约 1600 元",
+        success: "交通订单已生成：南京南 ⇄ 成都东往返高铁，2 人，待支付。"
+      },
+      hotel: {
+        title: "酒店预订接口",
+        name: "春熙路舒适型酒店 2 晚",
+        desc: "近地铁，方便晚餐和夜间返回。演示版会模拟锁定房型和入住日期。",
+        price: "约 900 元",
+        success: "酒店订单已生成：春熙路舒适型酒店，2 晚，待支付。"
+      },
+      ticket: {
+        title: "门票购买接口",
+        name: "成都景点门票组合",
+        desc: "包含熊猫基地、杜甫草堂、武侯祠，按 2 人计算。演示版会模拟创建门票订单。",
+        price: "约 330 元",
+        success: "门票订单已生成：熊猫基地、杜甫草堂、武侯祠，2 人，待支付。"
+      },
+      food: {
+        title: "餐饮预约接口",
+        name: "春熙路火锅餐厅预约",
+        desc: "Day 1 晚餐，2 人，建议鸳鸯锅或中辣。演示版会模拟提交餐厅预约。",
+        price: "约 240 元",
+        success: "餐饮预约已生成：春熙路火锅，Day 1 晚餐，2 人。"
+      }
+    }
+
+    function addMessage(type, text) {
+      const message = document.createElement("div")
+      message.className = `message ${type}`
+      const avatar = document.createElement("div")
+      avatar.className = "avatar"
+      avatar.textContent = type === "user" ? "你" : "AI"
+      const bubble = document.createElement("div")
+      bubble.className = "bubble"
+      bubble.textContent = text
+      if (type === "user") {
+        message.append(bubble, avatar)
+      } else {
+        message.append(avatar, bubble)
+      }
+      chatStream.appendChild(message)
+      chatStream.scrollTop = chatStream.scrollHeight
+    }
+
+    function setProgress(index) {
+      progressSteps.forEach((item, itemIndex) => {
+        item.classList.toggle("active", itemIndex <= index)
+      })
+    }
+
+    function setServiceReady(name) {
+      const service = services.find((item) => item.dataset.service === name)
+      if (!service) return
+      service.classList.add("ready")
+      const state = service.querySelector(".state")
+      if (state) state.textContent = "已生成"
+    }
+
+    function resetDemo() {
+      chatStream.innerHTML = ""
+      progressSteps.forEach((item) => item.classList.remove("active"))
+      purchaseItems.forEach((item) => item.classList.remove("ready"))
+      services.forEach((service) => {
+        service.classList.remove("ready")
+        const state = service.querySelector(".state")
+        if (state) state.textContent = "待生成"
+      })
+      intentStatus.textContent = "等待生成"
+      planStatus.textContent = "AI 待命"
+      routeState.textContent = "等待 AI 排程"
+      purchaseState.textContent = "生成方案后可购买"
+      checkoutPanel.classList.remove("active")
+      activeOrder = null
+      planIntro.textContent = "点击生成后，AI 会把用户需求拆成交通、住宿、餐饮、门票和每日路线，形成可演示的一条龙旅游方案。"
+      budgetMetric.textContent = "约 4200 元"
+      addMessage("ai", "你好，我是一键游 AI 旅行管家。告诉我出发地、目的地、天数、预算和偏好，我会把交通、酒店、餐饮和路线一起整理好。")
+    }
+
+    function runDemo() {
+      resetDemo()
+      addMessage("user", promptInput.value.trim())
+      intentStatus.textContent = "生成中"
+      planStatus.textContent = "AI 正在编排"
+      routeState.textContent = "AI 正在排程"
+      planIntro.textContent = "AI 正在把自然语言需求拆成可执行的旅行方案。"
+
+      flow.forEach((item) => {
+        window.setTimeout(() => {
+          setProgress(item.step)
+          if (item.service) setServiceReady(item.service)
+          addMessage("ai", item.text)
+          planStatus.textContent = item.status
+          if (item.done) {
+            intentStatus.textContent = "已生成"
+            routeState.textContent = "路线已生成"
+            purchaseState.textContent = "4 项待确认购买"
+            purchaseItems.forEach((purchaseItem) => purchaseItem.classList.add("ready"))
+            planIntro.textContent = "方案已完成，包含往返交通、住宿区域、餐饮安排、门票预算和每日路线，可用于项目演示。"
+          }
+        }, item.delay)
+      })
+    }
+
+    function openPurchase(type) {
+      const item = purchaseCatalog[type]
+      if (!item) return
+      activeOrder = item
+      checkoutTitle.textContent = item.title
+      checkoutDesc.textContent = `${item.name}，${item.price}。${item.desc}`
+      checkoutPanel.classList.add("active")
+      purchaseState.textContent = "正在确认购买信息"
+      addMessage("user", `我要购买：${item.name}`)
+      addMessage("ai", `已打开${item.title}。我会带入人数、日期、目的地和预算，你只需要确认订单。`)
+      checkoutPanel.scrollIntoView({ behavior: "smooth", block: "center" })
+    }
+
+    function confirmOrder() {
+      if (!activeOrder) {
+        addMessage("ai", "请先选择一个需要购买或预订的项目。")
+        return
+      }
+      addMessage("ai", activeOrder.success)
+      purchaseState.textContent = "模拟订单已创建"
+      checkoutTitle.textContent = "模拟订单已创建"
+      checkoutDesc.textContent = `${activeOrder.name} 已进入待支付状态。正式版本会在这里对接订单、库存、支付和取消规则。`
+    }
+
+    function addTweak(type, label) {
+      const replies = {
+        hotel: "已将酒店偏好调整为更安静：推荐宽窄巷子附近或地铁 2 号线沿线，晚上休息更舒服。",
+        food: "已加一顿川菜正餐：Day 3 午餐安排人民公园周边川菜馆，减少排队小吃。",
+        transport: "已切换为飞机往返：去程南京禄口到成都天府，返程建议预留 2.5 小时到机场。",
+        pace: "已降低行程密度：Day 2 下午只保留杜甫草堂，取消额外街区，让路线更轻松。"
+      }
+      addMessage("user", label)
+      addMessage("ai", replies[type])
+      if (type === "transport") budgetMetric.textContent = "约 4700 元"
+      if (type === "pace") planStatus.textContent = "轻松版已更新"
+    }
+
+    chips.forEach((chip) => {
+      chip.addEventListener("click", () => {
+        promptInput.value = chip.dataset.prompt
+      })
+    })
+
+    generateBtn.addEventListener("click", runDemo)
+    topGenerateBtn.addEventListener("click", runDemo)
+    resetBtn.addEventListener("click", resetDemo)
+    refineBtn.addEventListener("click", () => {
+      addMessage("user", "帮我把预算降低 500 元。")
+      addMessage("ai", "可以。建议把酒店换到地铁 2 号线沿线，火锅选择人均 80 元左右门店，总预算可降到约 3700 元。")
+      budgetMetric.textContent = "约 3700 元"
+      planStatus.textContent = "预算版已更新"
+    })
+    buyButtons.forEach((button) => {
+      button.addEventListener("click", () => openPurchase(button.dataset.buy))
+    })
+    confirmOrderBtn.addEventListener("click", confirmOrder)
+    tweakButtons.forEach((button) => {
+      button.addEventListener("click", () => addTweak(button.dataset.tweak, button.textContent))
+    })
+
+    resetDemo()
+  </script>
+</body>
+</html>

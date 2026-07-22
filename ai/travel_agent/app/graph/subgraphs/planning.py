@@ -15,6 +15,7 @@ from app.domain.models import ReviewVerdict
 from app.graph.nodes.planning import (
     candidate_validation,
     check_budget_feasibility,
+    code_repair,
     make_candidate_selection_node,
     make_hard_validation_node,
     make_phase1_research_node,
@@ -64,6 +65,14 @@ def route_after_review(state: TravelState) -> str:
         return "fail"
     if hard.hard_pass and review.verdict is ReviewVerdict.PASS:
         return "save"
+    repairable_hard_codes = {"BUDGET_EXCEEDED", "HOTEL_NIGHTS_MISMATCH"}
+    hard_codes = {issue.code for issue in hard.errors}
+    repairable_review = any(issue.startswith("EMPTY_DAY") for issue in review.issues)
+    if (
+        not state.get("code_repair_attempted", False)
+        and (hard_codes.intersection(repairable_hard_codes) or repairable_review)
+    ):
+        return "code_repair"
     if state.get("revision_count", 0) < 2:
         return "revise"
     return "fail"
@@ -93,10 +102,14 @@ def build_planning_subgraph(
     graph.add_node("budget_clarification", make_ask_user_node(clarification_agent))
     graph.add_node("candidate_selection", make_candidate_selection_node(candidate_selector))
     graph.add_node("candidate_validation", candidate_validation)
-    graph.add_node("phase2_research", make_phase2_research_node(phase2_research_agent))
+    graph.add_node(
+        "phase2_research",
+        make_phase2_research_node(phase2_research_agent, tool_executor),
+    )
     graph.add_node("planner", make_planner_node(planner_agent))
     graph.add_node("hard_validation", make_hard_validation_node(hard_validator))
     graph.add_node("review_plan", make_review_node(reviewer_agent))
+    graph.add_node("code_repair", code_repair)
     graph.add_node("revise_plan", make_revision_node(revision_agent))
     graph.add_node(
         "save_validated_plan",
@@ -143,10 +156,12 @@ def build_planning_subgraph(
         route_after_review,
         {
             "save": "save_validated_plan",
+            "code_repair": "code_repair",
             "revise": "revise_plan",
             "fail": "validation_failure",
         },
     )
+    graph.add_edge("code_repair", "hard_validation")
     graph.add_edge("revise_plan", "hard_validation")
     graph.add_edge("save_validated_plan", END)
     graph.add_edge("planning_failure", END)

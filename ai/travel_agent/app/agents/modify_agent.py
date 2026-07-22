@@ -95,12 +95,15 @@ class RuleBasedModifyAnalyzerAgent:
         )
         discovery: list[ToolName] = []
         dependent: list[ToolName] = []
-        reasons = ["由大模型直接修改现有方案，不调用 Mock 研究工具。"]
         impact = (
             ModifyImpact.RESEARCH_REQUIRED
             if request.replacement_name or request.remove_tags
             else ModifyImpact.SIMPLE
         )
+        if impact is ModifyImpact.RESEARCH_REQUIRED:
+            reasons = ["地点变更由修改 Agent 基于当前方案生成新版本。"]
+        else:
+            reasons = ["简单调整不需要调用外部工具。"]
         return ModifyAnalysis(
             impact=impact,
             request=request,
@@ -199,8 +202,10 @@ class LangChainModifyAnalyzerAgent:
             SystemMessage(
                 content=(
                     "分析用户对已有行程的修改，只输出结构化 ModifyAnalysis。"
-                    "当前由大模型直接修改完整方案，不调用研究工具；"
-                    "discovery_tools 和 dependent_tools 必须为空。"
+                    "地点替换、日期变化或移除某类景点时 impact 使用 research_required，"
+                    "discovery_tools 和 dependent_tools 必须为空；"
+                    "简单排序或预算调整不调用工具。"
+                    "dependent_tools 必须为空。工具建议最终仍会由代码白名单过滤。"
                 )
             ),
             HumanMessage(

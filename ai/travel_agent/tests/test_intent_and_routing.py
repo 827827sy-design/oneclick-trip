@@ -4,11 +4,12 @@ from decimal import Decimal
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
-from app.agents.intent_agent import RuleBasedIntentAgent
+from app.agents.intent_agent import RuleBasedIntentAgent, enforce_code_owned_intent
 from app.domain.models import (
     BudgetMode,
     BudgetScope,
     Intent,
+    IntentDecision,
     NextAction,
     TravelEntities,
     TravelPlan,
@@ -17,6 +18,7 @@ from app.domain.models import (
 from app.graph.builder import build_travel_graph
 from app.graph.nodes.state_normalizer import normalize_state
 from app.graph.router import route_after_supervisor
+from app.tools.mock_tools import build_mock_tool_registry
 
 
 def invoke(query: str, **state_overrides):
@@ -45,12 +47,195 @@ class ContextLeakingIntentAgent(RuleBasedIntentAgent):
         return decision
 
 
+class UnknownIntentAgent(RuleBasedIntentAgent):
+    def classify(self, query: str, *, context=None):
+        del query, context
+        return IntentDecision(intent=Intent.UNKNOWN, confidence=0.8)
+
+    async def aclassify(self, query: str, *, context=None):
+        return self.classify(query, context=context)
+
+
+class OverplanningIntentAgent(RuleBasedIntentAgent):
+    def classify(self, query: str, *, context=None):
+        decision = super().classify(query, context=context)
+        return decision.model_copy(update={"intent": Intent.TRIP_PLAN, "tasks": []})
+
+    async def aclassify(self, query: str, *, context=None):
+        return self.classify(query, context=context)
+
+
+class ConfidentlyWrongIntentAgent(RuleBasedIntentAgent):
+    def classify(self, query: str, *, context=None):
+        del query, context
+        return IntentDecision(intent=Intent.GENERAL_QA, confidence=0.99)
+
+    async def aclassify(self, query: str, *, context=None):
+        return self.classify(query, context=context)
+
+
 def test_rule_agent_extracts_transport_direction_in_text_order() -> None:
     decision = RuleBasedIntentAgent().classify("成都到上海怎么去方便？")
 
     assert decision.intent == Intent.TRANSPORT_QUERY
     assert decision.entities.origin == "成都"
     assert decision.entities.destination == "上海"
+
+
+def test_rule_agent_extracts_multiple_read_only_intents() -> None:
+    decision = RuleBasedIntentAgent().classify(
+        "查成都明天天气，顺便推荐两家酒店"
+    )
+
+    assert decision.intent is Intent.WEATHER_QUERY
+    assert [task.intent for task in decision.tasks] == [
+        Intent.WEATHER_QUERY,
+        Intent.HOTEL_QUERY,
+    ]
+    assert all(task.entities.destination == "成都" for task in decision.tasks)
+
+
+def test_rule_agent_keeps_source_requirement_with_the_question() -> None:
+    query = "成都有哪些历史文化景点？请说明开放时间，并标明资料来源。"
+
+    decision = RuleBasedIntentAgent().classify(query)
+
+    assert decision.intent is Intent.GENERAL_QA
+    assert len(decision.tasks) == 1
+    assert decision.tasks[0].query == "成都有哪些历史文化景点？请说明开放时间，并标明资料来源"
+
+
+def test_relative_weather_date_and_visit_word_do_not_trigger_trip_plan() -> None:
+    decision = RuleBasedIntentAgent().classify(
+        "请查询成都明天的天气，并推荐两个适合第一次去成都游客的住宿区域。"
+    )
+
+    assert decision.intent is Intent.WEATHER_QUERY
+    assert [task.intent for task in decision.tasks] == [
+        Intent.WEATHER_QUERY,
+        Intent.HOTEL_QUERY,
+    ]
+    assert all(task.entities.destination == "成都" for task in decision.tasks)
+
+
+def test_code_guard_repairs_unknown_model_compound_intent() -> None:
+    result = build_travel_graph(intent_agent=UnknownIntentAgent()).invoke(
+        {
+            "conversation_id": "unknown-compound",
+            "user_id": "unknown-compound-user",
+            "messages": [
+                HumanMessage(content="查成都明天天气，顺便推荐两家酒店")
+            ],
+        }
+    )
+
+    assert result["intent"] is Intent.WEATHER_QUERY
+    assert [task.intent for task in result["intent_tasks"]] == [
+        Intent.WEATHER_QUERY,
+        Intent.HOTEL_QUERY,
+    ]
+
+
+def test_code_guard_repairs_confident_weather_misclassification() -> None:
+    result = build_travel_graph(
+        intent_agent=ConfidentlyWrongIntentAgent(),
+        tool_registry=build_mock_tool_registry(),
+    ).invoke(
+        {
+            "conversation_id": "confident-weather-misroute",
+            "user_id": "confident-weather-user",
+            "messages": [HumanMessage(content="成都明天天气怎么样？")],
+        }
+    )
+
+    assert result["intent"] is Intent.WEATHER_QUERY
+    assert [task.intent for task in result["intent_tasks"]] == [Intent.WEATHER_QUERY]
+    assert result["selected_tools"] == ["weather"]
+
+
+def test_code_guard_repairs_confident_compound_misclassification() -> None:
+    result = build_travel_graph(
+        intent_agent=ConfidentlyWrongIntentAgent(),
+        tool_registry=build_mock_tool_registry(),
+    ).invoke(
+        {
+            "conversation_id": "confident-compound-misroute",
+            "user_id": "confident-compound-user",
+            "messages": [HumanMessage(content="查成都明天天气，顺便推荐两家酒店")],
+        }
+    )
+
+    assert result["intent"] is Intent.WEATHER_QUERY
+    assert [task.intent for task in result["intent_tasks"]] == [
+        Intent.WEATHER_QUERY,
+        Intent.HOTEL_QUERY,
+    ]
+    assert result["selected_tools"] == ["weather", "hotel_search"]
+
+
+def test_code_owned_routes_cover_controlled_business_flows() -> None:
+    wrong = IntentDecision(intent=Intent.GENERAL_QA, confidence=0.99)
+    cases = {
+        "成都酒店推荐": Intent.HOTEL_QUERY,
+        "上海到成都怎么去方便？": Intent.TRANSPORT_QUERY,
+        "帮我规划成都三日游": Intent.TRIP_PLAN,
+        "把第二天上午换成熊猫基地": Intent.MODIFY_PLAN,
+        "帮我预订酒店 HOTEL-CD-001": Intent.BOOKING,
+        "确认预订": Intent.BOOKING_CONFIRM,
+        "记住我喜欢徒步": Intent.MEMORY_MANAGE,
+    }
+
+    for query, expected in cases.items():
+        guarded = enforce_code_owned_intent(query, wrong)
+        assert guarded.intent is expected, query
+
+
+def test_code_route_preserves_llm_destination_outside_rule_dictionary() -> None:
+    model_decision = IntentDecision(
+        intent=Intent.GENERAL_QA,
+        confidence=0.96,
+        entities=TravelEntities(destination="阿尔山"),
+    )
+
+    guarded = enforce_code_owned_intent("帮我规划阿尔山三日游", model_decision)
+
+    assert guarded.intent is Intent.TRIP_PLAN
+    assert guarded.entities.destination == "阿尔山"
+    assert guarded.entities.days == 3
+    assert guarded.tasks[0].entities.destination == "阿尔山"
+
+
+def test_code_guard_keeps_route_advice_as_read_only_query() -> None:
+    result = build_travel_graph(intent_agent=OverplanningIntentAgent()).invoke(
+        {
+            "conversation_id": "overplanned-route-advice",
+            "user_id": "overplanned-route-advice-user",
+            "messages": [
+                HumanMessage(content="新疆北疆的喀纳斯和禾木怎么安排更合理？")
+            ],
+        }
+    )
+
+    assert result["intent"] is Intent.GENERAL_QA
+    assert result["missing_fields"] == []
+
+
+def test_trip_plan_absorbs_weather_and_hotel_requirements() -> None:
+    decision = RuleBasedIntentAgent().classify(
+        "帮我规划成都三日游，两个人，总预算5000，同时考虑天气和酒店"
+    )
+
+    assert decision.intent is Intent.TRIP_PLAN
+    assert [task.intent for task in decision.tasks] == [Intent.TRIP_PLAN]
+
+
+def test_booking_request_is_not_parallelized_with_read_only_queries() -> None:
+    decision = RuleBasedIntentAgent().classify(
+        "查成都天气，并帮我预订酒店"
+    )
+
+    assert decision.intent is Intent.BOOKING
+    assert [task.intent for task in decision.tasks] == [Intent.BOOKING]
 
 
 def test_rule_agent_extracts_origin_for_explicit_trip_direction() -> None:
@@ -61,6 +246,13 @@ def test_rule_agent_extracts_origin_for_explicit_trip_direction() -> None:
     assert decision.intent == Intent.TRIP_PLAN
     assert decision.entities.origin == "成都"
     assert decision.entities.destination == "大理"
+
+
+def test_rule_agent_treats_single_city_from_phrase_as_origin() -> None:
+    decision = RuleBasedIntentAgent().classify("我从广州出发")
+
+    assert decision.entities.origin == "广州"
+    assert decision.entities.destination is None
 
 
 def test_trip_duration_does_not_use_day_number_from_date() -> None:
@@ -80,17 +272,24 @@ def test_travel_desire_routes_to_plan_slot_follow_up() -> None:
     assert result["intent"] == Intent.TRIP_PLAN
     assert result["entities"].destination == "新疆"
     assert result["next_action"] == NextAction.ASK_USER
-    assert result["missing_fields"] == ["duration", "people", "budget"]
-    assert result["messages"][-1].content == "再告诉我旅行天数或出发与返程日期，我就可以接着帮你规划。"
+    assert result["missing_fields"] == ["destination_detail", "duration", "people", "budget"]
+    assert result["messages"][-1].content == "再告诉我主要想玩的城市或区域，我就可以接着帮你规划。"
     assert result["clarification_reply"].title == "新疆已经记下啦"
-    assert result["clarification_reply"].choice_prompt == "旅行准备玩几天？具体日期也可以直接输入"
+    assert result["clarification_reply"].choice_prompt == "这个范围很大，先选这次主要想玩的城市或区域"
     assert [action.label for action in result["clarification_reply"].actions] == [
-        "2 天",
-        "3 天",
-        "4 天",
-        "5 天",
-        "7 天",
+        "乌鲁木齐周边",
+        "伊犁",
+        "喀什",
+        "阿勒泰",
     ]
+
+
+def test_rule_agent_understands_one_week_as_seven_days() -> None:
+    decision = RuleBasedIntentAgent().classify("我想去新疆玩一周")
+
+    assert decision.intent is Intent.TRIP_PLAN
+    assert decision.entities.destination == "新疆"
+    assert decision.entities.days == 7
 
 
 def test_slot_follow_up_keeps_pending_trip_plan_intent() -> None:
@@ -117,8 +316,20 @@ def test_slot_follow_up_keeps_pending_trip_plan_intent() -> None:
     assert second["intent"] == Intent.TRIP_PLAN
     assert second["entities"].destination == "新疆"
     assert second["entities"].days == 3
-    assert second["next_action"] == NextAction.COMPLETE
-    assert second["plan_saved"] is True
+    assert second["next_action"] == NextAction.ASK_USER
+    assert second["missing_fields"] == ["destination_detail"]
+
+    third = graph.invoke(
+        {
+            "conversation_id": "xinjiang-follow-up",
+            "user_id": "routing-user",
+            "messages": [HumanMessage(content="这次主要玩伊犁")],
+        },
+        config=config,
+    )
+    assert third["entities"].destination == "伊犁"
+    assert third["next_action"] == NextAction.COMPLETE
+    assert third["plan_saved"] is True
 
 
 def test_choice_actions_advance_people_then_budget_estimate() -> None:
@@ -161,9 +372,20 @@ def test_choice_actions_advance_people_then_budget_estimate() -> None:
     assert second["missing_fields"] == ["budget"]
     assert second["clarification_reply"].choice_prompt == "选一个总预算，也可以直接输入其他金额"
     assert third["intent"] is Intent.TRIP_PLAN
-    assert third["missing_fields"] == ["budget_confirmation"]
-    assert third["budget_estimate"] is not None
-    assert len(third["clarification_reply"].actions) == 2
+    assert third["missing_fields"] == ["origin"]
+    assert third.get("budget_estimate") is None
+
+    fourth = graph.invoke(
+        {
+            "conversation_id": "guided-choice-flow",
+            "user_id": "routing-user",
+            "messages": [HumanMessage(content="我从广州出发")],
+        },
+        config=config,
+    )
+    assert fourth["missing_fields"] == ["budget_confirmation"]
+    assert fourth["budget_estimate"] is not None
+    assert len(fourth["clarification_reply"].actions) == 2
 
 
 def test_agent_estimates_two_budget_tiers_without_reasking_for_budget() -> None:

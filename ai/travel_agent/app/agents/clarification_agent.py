@@ -18,6 +18,7 @@ from app.domain.models import (
 FIELD_LABELS = {
     "destination": "想去哪里",
     "origin": "从哪个城市出发",
+    "destination_detail": "主要想玩的城市或区域",
     "duration": "旅行天数或出发与返程日期",
     "people": "同行人数",
     "budget": "大概预算",
@@ -149,6 +150,8 @@ class LangChainClarificationAgent:
                     "不得擅自把 suggested_budget 当成用户已经接受的预算。"
                     "budget_estimate 为空时，禁止自行给出预算区间、档位金额或假装已经完成估算；"
                     "只自然询问用户选择预算按钮或输入自己的金额。"
+                    "缺少 destination_detail 时，只询问用户把省域目的地缩小到一个城市或区域。"
+                    "缺少 origin 时，只询问从哪里出发，说明这是估算往返大交通所必需的信息。"
                     "如果给出了 budget_estimate，必须准确保留两档金额：极限穷游档要明确写出青旅、"
                     "绿皮火车或最低价交通、市内步行公交/共享助力车、泡面与基础饱腹餐、免费景点为主；"
                     "正常舒适档要写出经济型住宿、合理交通、本地餐饮和主要景点。"

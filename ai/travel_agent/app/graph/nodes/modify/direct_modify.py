@@ -2,7 +2,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import Runnable, RunnableLambda
 
 from app.agents.direct_modify_agent import DirectModifyAgent
-from app.domain.models import CandidateSelection, TravelEntities, UserPreferences
+from app.domain.models import CandidateSelection, ToolName, TravelEntities, UserPreferences
 from app.graph.state import TravelState, TravelStatePatch
 
 
@@ -19,6 +19,7 @@ def make_direct_modify_node(agent: DirectModifyAgent) -> Runnable[TravelState, T
                 for message in state.get("messages", [])[-20:]
                 if isinstance(message, (HumanMessage, AIMessage))
             ],
+            "research_context": _research_context(state),
         }
 
     def modified_entities(state: TravelState) -> TravelEntities:
@@ -44,7 +45,11 @@ def make_direct_modify_node(agent: DirectModifyAgent) -> Runnable[TravelState, T
                     for item in day.items
                     if item.location_id
                 ],
-                reasons=["由大模型直接修改，未使用 Mock 研究工具。"],
+                reasons=[
+                    "已参考联网研究资料。"
+                    if _research_context(state)
+                    else "未调用外部研究工具。"
+                ],
             ),
             "phase1_research": None,
             "phase2_research": None,
@@ -79,3 +84,13 @@ def _latest_query(state: TravelState) -> str:
         ),
         "",
     )
+
+
+def _research_context(state: TravelState) -> dict | None:
+    results = state.get("tool_results", {})
+    context = {
+        name.value: result.data
+        for name in (ToolName.TRAVEL_RESEARCH, ToolName.XIAOHONGSHU_RESEARCH)
+        if (result := results.get(name.value)) and result.success
+    }
+    return context or None

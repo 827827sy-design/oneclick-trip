@@ -57,11 +57,15 @@ class BookingStatus(StrEnum):
 
 
 class ToolName(StrEnum):
+    KNOWLEDGE_SEARCH = "knowledge_search"
+    TRAVEL_RESEARCH = "travel_research"
+    XIAOHONGSHU_RESEARCH = "xiaohongshu_research"
     WEATHER = "weather"
     HOTEL_SEARCH = "hotel_search"
     TRAIN_SEARCH = "train_search"
     FLIGHT_SEARCH = "flight_search"
     POI_SEARCH = "poi_search"
+    POI_COORDINATES = "poi_coordinates"
     ROUTE_MATRIX = "route_matrix"
     OPENING_HOURS = "opening_hours"
     TICKET = "ticket"
@@ -72,6 +76,17 @@ class ToolRecoveryAction(StrEnum):
     FALLBACK = "fallback"
     CONTINUE = "continue"
     ABORT = "abort"
+
+
+class ToolDataMode(StrEnum):
+    """Declares how fresh and authoritative a tool result is."""
+
+    UNKNOWN = "UNKNOWN"
+    REALTIME = "REALTIME"
+    CACHE = "CACHE"
+    MOCK = "MOCK"
+    AI_KNOWLEDGE = "AI_KNOWLEDGE"
+    FALLBACK = "FALLBACK"
 
 
 class ReviewVerdict(StrEnum):
@@ -154,11 +169,26 @@ class IntentContext(DomainModel):
     booking_status: BookingStatus | None = None
 
 
+class IntentTask(DomainModel):
+    """One independently answerable request extracted from the current turn."""
+
+    task_id: str = ""
+    query: str = Field(min_length=1, max_length=2000)
+    intent: Intent
+    entities: TravelEntities = Field(default_factory=TravelEntities)
+
+
+class QueryToolCall(DomainModel):
+    task_id: str
+    tool_name: ToolName
+
+
 class IntentDecision(DomainModel):
     intent: Intent
     entities: TravelEntities = Field(default_factory=TravelEntities)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     advisory_missing_fields: list[str] = Field(default_factory=list)
+    tasks: list[IntentTask] = Field(default_factory=list, max_length=8)
 
 
 class ClarificationAction(DomainModel):
@@ -191,6 +221,12 @@ class POICandidate(DomainModel):
     tags: list[str] = Field(default_factory=list)
     suggested_duration_minutes: int = Field(ge=30)
     ticket_price: Decimal = Decimal("0")
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    coordinate_source: str | None = None
+    coordinates_verified: bool = False
+    source_document_ids: list[str] = Field(default_factory=list)
+    source_urls: list[str] = Field(default_factory=list)
 
 
 class HotelAreaCandidate(DomainModel):
@@ -208,6 +244,23 @@ class TransportCandidate(DomainModel):
     price: Decimal = Decimal("0")
 
 
+class ResearchSourceReference(DomainModel):
+    title: str
+    url: str
+    source_tier: str
+    authority_score: float = Field(ge=0, le=1)
+
+
+class ResearchEvidenceClaim(DomainModel):
+    metric: str
+    lower: float
+    upper: float
+    unit: str
+    source_count: int = Field(ge=1)
+    source_urls: list[str] = Field(default_factory=list)
+    corroborated: bool = False
+
+
 class Phase1Research(DomainModel):
     data_mode: str = "AI_KNOWLEDGE"
     destination: str
@@ -215,6 +268,9 @@ class Phase1Research(DomainModel):
     poi_candidates: list[POICandidate] = Field(default_factory=list)
     hotel_areas: list[HotelAreaCandidate] = Field(default_factory=list)
     transport_options: list[TransportCandidate] = Field(default_factory=list)
+    research_sources: list[ResearchSourceReference] = Field(default_factory=list)
+    evidence_claims: list[ResearchEvidenceClaim] = Field(default_factory=list)
+    research_confidence: float | None = Field(default=None, ge=0, le=1)
 
 
 class BudgetFeasibility(DomainModel):
@@ -394,9 +450,27 @@ class ModificationResult(DomainModel):
 class ToolResult(DomainModel):
     success: bool
     data: dict[str, Any] = Field(default_factory=dict)
+    source: str = "unknown"
+    data_mode: ToolDataMode = ToolDataMode.UNKNOWN
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    fetched_at: DateTime = Field(default_factory=lambda: DateTime.now(UTC))
+    bookable: bool = False
     error_code: str | None = None
     retryable: bool = False
     timestamp: DateTime = Field(default_factory=lambda: DateTime.now(UTC))
+
+    @model_validator(mode="before")
+    @classmethod
+    def promote_legacy_metadata(cls, value: Any) -> Any:
+        """Keep old tool adapters readable while metadata moves to the envelope."""
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        data = normalized.get("data")
+        if isinstance(data, dict):
+            normalized.setdefault("source", data.get("source", "unknown"))
+            normalized.setdefault("data_mode", data.get("data_mode", ToolDataMode.UNKNOWN))
+        return normalized
 
 
 class ToolError(DomainModel):

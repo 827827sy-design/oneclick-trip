@@ -22,6 +22,7 @@ class AiAssistantServiceTest {
     private FastApiAgentClient agentClient;
     private AiCallLogMapper logMapper;
     private AiConversationService conversationService;
+    private AgentRunLogService agentRunLogService;
     private AiAssistantService service;
 
     @BeforeEach
@@ -29,7 +30,14 @@ class AiAssistantServiceTest {
         agentClient = mock(FastApiAgentClient.class);
         logMapper = mock(AiCallLogMapper.class);
         conversationService = mock(AiConversationService.class);
-        service = new AiAssistantService(agentClient, logMapper, conversationService);
+        agentRunLogService = mock(AgentRunLogService.class);
+        service = new AiAssistantService(
+                agentClient,
+                logMapper,
+                conversationService,
+                agentRunLogService,
+                objectMapper
+        );
     }
 
     @Test
@@ -43,7 +51,7 @@ class AiAssistantServiceTest {
                   "interrupted": false
                 }
                 """);
-        when(agentClient.run("conversation-1", "42", "成都明天天气怎么样？"))
+        when(agentClient.run("conversation-1", "42", "成都明天天气怎么样？", false))
                 .thenReturn(state);
 
         AiChatResponse response = service.chat(
@@ -55,7 +63,7 @@ class AiAssistantServiceTest {
         assertThat(response.message()).contains("成都明天多云");
         assertThat(response.conversationId()).isEqualTo("conversation-1");
         assertThat(response.intent()).isEqualTo("weather_query");
-        verify(agentClient).run("conversation-1", "42", "成都明天天气怎么样？");
+        verify(agentClient).run("conversation-1", "42", "成都明天天气怎么样？", false);
 
         ArgumentCaptor<AiCallLog> logCaptor = ArgumentCaptor.forClass(AiCallLog.class);
         verify(logMapper).insert(logCaptor.capture());
@@ -74,15 +82,106 @@ class AiAssistantServiceTest {
                   "interrupted": true
                 }
                 """);
-        when(agentClient.resume("conversation-2", "demo-user", true)).thenReturn(state);
+        when(agentClient.resume("conversation-2", "42", true)).thenReturn(state);
 
         AiChatResponse response = service.resume(
                 new AiResumeRequest(null, "conversation-2", true),
-                null
+                42L
         );
 
         assertThat(response.status()).isEqualTo("WAITING_CONFIRMATION");
         assertThat(response.interrupted()).isTrue();
         assertThat(response.message()).contains("预订草稿");
+    }
+
+    @Test
+    void anonymousAiRequestIsRejectedBeforeCallingFastApi() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.chat(
+                        new AiChatRequest(99L, "conversation-private", "成都天气"),
+                        null
+                ))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class)
+                .hasMessageContaining("需要登录");
+    }
+
+    @Test
+    void asyncJobCannotBeReadByAnotherAuthenticatedUser() throws Exception {
+        JsonNode accepted = objectMapper.readTree("""
+                {"run_id":"run-private","conversation_id":"conversation-private","status":"QUEUED"}
+                """);
+        when(agentClient.startRun("conversation-private", "42", "成都天气", false))
+                .thenReturn(accepted);
+        service.startChat(
+                new AiChatRequest(99L, "conversation-private", "成都天气"),
+                42L
+        );
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.job("run-private", 43L))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class)
+                .hasMessageContaining("无权查看");
+    }
+
+    @Test
+    void asyncChatReturnsImmediatelyAndPersistsTheCompletedResultOnce() throws Exception {
+        JsonNode accepted = objectMapper.readTree("""
+                {
+                  "run_id": "run-async-1",
+                  "conversation_id": "conversation-async-1",
+                  "status": "QUEUED"
+                }
+                """);
+        JsonNode completed = objectMapper.readTree("""
+                {
+                  "run_id": "run-async-1",
+                  "conversation_id": "conversation-async-1",
+                  "status": "COMPLETED",
+                  "progress": 100,
+                  "result": {
+                    "conversation_id": "conversation-async-1",
+                    "intent": "weather_query",
+                    "next_action": "complete",
+                    "reply": "成都明天多云。",
+                    "interrupted": false
+                  }
+                }
+                """);
+        when(agentClient.startRun("conversation-async-1", "42", "成都明天天气怎么样？", false))
+                .thenReturn(accepted);
+        when(agentClient.runJob("run-async-1", "42")).thenReturn(completed);
+
+        JsonNode started = service.startChat(
+                new AiChatRequest(null, "conversation-async-1", "成都明天天气怎么样？"),
+                42L
+        );
+        JsonNode firstPoll = service.job("run-async-1", 42L);
+        JsonNode secondPoll = service.job("run-async-1", 42L);
+
+        assertThat(started.path("run_id").asText()).isEqualTo("run-async-1");
+        assertThat(firstPoll.path("response").path("message").asText()).contains("成都明天多云");
+        assertThat(secondPoll.path("response").path("status").asText()).isEqualTo("COMPLETED");
+        verify(agentClient).startRun("conversation-async-1", "42", "成都明天天气怎么样？", false);
+        verify(logMapper).insert(org.mockito.ArgumentMatchers.any(AiCallLog.class));
+    }
+
+    @Test
+    void chatCanIgnoreStoredUserPreferencesForThisTurn() throws Exception {
+        JsonNode state = objectMapper.readTree("""
+                {
+                  "conversation_id": "conversation-private-mode",
+                  "intent": "trip_plan",
+                  "next_action": "planning_flow",
+                  "reply": "已按本次要求规划。",
+                  "interrupted": false
+                }
+                """);
+        when(agentClient.run("conversation-private-mode", "42", "规划成都三日游", true))
+                .thenReturn(state);
+
+        service.chat(
+                new AiChatRequest(null, "conversation-private-mode", "规划成都三日游", true),
+                42L
+        );
+
+        verify(agentClient).run("conversation-private-mode", "42", "规划成都三日游", true);
     }
 }

@@ -1,8 +1,17 @@
 const TOKEN_KEY = 'oneclick_trip_token'
+const USER_KEY = 'oneclick_trip_user'
 const BASE = '/api/admin'
 
 function getToken() {
   return localStorage.getItem(TOKEN_KEY)
+}
+
+function clearInvalidAdminSession() {
+  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(USER_KEY)
+  if (window.location.hash !== '#/login') {
+    window.location.hash = '#/login'
+  }
 }
 
 async function request(path, options = {}) {
@@ -17,6 +26,15 @@ async function request(path, options = {}) {
 
   const response = await fetch(path, { ...options, headers })
   const body = await response.json().catch(() => null)
+
+  if (response.status === 401 || response.status === 403) {
+    clearInvalidAdminSession()
+    throw new Error(
+      response.status === 403
+        ? '当前登录已失效或账号没有管理员权限，请重新登录'
+        : '登录状态已失效，请重新登录'
+    )
+  }
 
   if (!response.ok || body?.success === false) {
     throw new Error(body?.message || `请求失败：${response.status}`)
@@ -58,6 +76,20 @@ export function fetchConversation(id) {
 
 export function deleteConversation(id) {
   return request(`${BASE}/conversations/${id}`, { method: 'DELETE' })
+}
+
+// ===== Agent 运行与排障 =====
+export function fetchAgentRuns(params = {}) {
+  const query = new URLSearchParams(params).toString()
+  return request(`${BASE}/agent-runs?${query}`)
+}
+
+export function fetchAgentRunStats() {
+  return request(`${BASE}/agent-runs/stats`)
+}
+
+export function fetchAgentRun(id) {
+  return request(`${BASE}/agent-runs/${id}`)
 }
 
 // ===== 城市管理 =====
@@ -212,6 +244,70 @@ export function fetchTripPlan(id) {
 
 export function deleteTripPlan(id) {
   return request(`${BASE}/trip-plans/${id}`, { method: 'DELETE' })
+}
+
+// ===== 知识库更新 =====
+export function fetchKnowledgeStats() {
+  return request(`${BASE}/knowledge/stats`)
+}
+
+export function rebuildKnowledgeIndex() {
+  return request(`${BASE}/knowledge/rebuild`, { method: 'POST' })
+}
+
+export function fetchKnowledgeBatches() {
+  return request(`${BASE}/knowledge/batches`)
+}
+
+export function fetchKnowledgeBatch(batchId) {
+  return request(`${BASE}/knowledge/batches/${batchId}`)
+}
+
+export function previewKnowledge(records) {
+  return request(`${BASE}/knowledge/preview`, {
+    method: 'POST',
+    body: JSON.stringify({ records })
+  })
+}
+
+export function collectKnowledge(payload) {
+  return request(`${BASE}/knowledge/collect`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export function publishKnowledge(batchId) {
+  return request(`${BASE}/knowledge/batches/${batchId}/publish`, {
+    method: 'POST'
+  })
+}
+
+export function reviewKnowledgeRecord(batchId, recordId, payload) {
+  return request(`${BASE}/knowledge/batches/${batchId}/records/${recordId}/review`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export function deleteApprovedKnowledgeRecord(batchId, recordId, payload) {
+  return request(`${BASE}/knowledge/batches/${batchId}/records/${recordId}`, {
+    method: 'DELETE',
+    body: JSON.stringify(payload)
+  })
+}
+
+export function rejectKnowledgeBatch(batchId, payload) {
+  return request(`${BASE}/knowledge/batches/${batchId}/reject`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export function reopenKnowledgeBatch(batchId) {
+  return request(`${BASE}/knowledge/batches/${batchId}/reopen`, {
+    method: 'POST'
+  })
 }
 
 // ===== 登录 =====

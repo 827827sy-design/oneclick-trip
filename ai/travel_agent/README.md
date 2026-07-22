@@ -1,14 +1,16 @@
 # OneClick Trip Agent
 
-基于 LangGraph 的“旅游一条龙”Agent。当前完成 **Phase 8：MySQL 业务持久化、普通 Redis Checkpoint、嵌入式 Chroma 和长期偏好记忆**。
+基于 LangGraph 的“旅游一条龙”Agent。当前已完成 B-01 工具平台、B-02 知识管道和 B-03 Java 安全持久化主链路。
 
 ## 当前数据策略
 
-- 天气查询保留演示接口；酒店预订保留 Java Backend Mock，用于演示草稿、确认和幂等流程。
+- 正式 FastAPI 应用使用 Open-Meteo 查询真实天气，使用 Nominatim 验证景点坐标，再由 OSRM 查询真实景点路线；结果统一记录来源、数据模式、抓取时间和置信度。
+- Agent Reach 与小红书采集器不进入用户请求，仅保留在 B-02 管理端离线知识采集注册表。
 - 完整规划恢复 Dify V3 的两阶段结构：DeepSeek 宽搜候选，代码校验候选来源，再由 DeepSeek 精查路线、开放时间与门票参考。
 - 酒店建议、交通建议、景点、美食和方案修改不调用 Mock 研究工具；模型知识与实时接口数据在 State 中明确区分。
 - 模型生成内容属于 AI 通用知识建议，不冒充实时搜索结果；价格、班次、营业时间、余量等必须在接入真实供应商后再确认。
-- 默认工具注册表只注册天气演示接口。旧研究工具代码仅作后续真实 API Adapter 的结构参考，不接入当前根图。
+- 酒店、火车、飞机和门票已经定义可替换 Provider 契约，但未配置真实供应商前不会返回伪造库存或价格。预订仍不执行真实交易，但草稿、确认 token hash、方案绑定和幂等状态已经由 Java 后端负责。
+- 直接构建测试图时仍可注入 Mock Registry；正式 `create_app()` 默认装配真实 Provider Registry。
 
 ## V3 原型业务总结
 
@@ -49,7 +51,7 @@ flowchart TD
     MEM --> END
     A --> END
 
-    Q -. weather only .-> QT[Weather Demo Interface]
+    Q -. weather only .-> QT[Open-Meteo Weather]
     Q -. other queries .-> LLMQ[DeepSeek Direct Answer]
     P --> R1[Phase 1 Research Agent]
     R1 --> CS[Candidate Selector]
@@ -98,7 +100,8 @@ select_query_tools
 
 ```text
 phase1_research
-  -> weather 演示接口 + DeepSeek 候选宽搜
+  -> Open-Meteo + DeepSeek 候选宽搜
+  -> Nominatim 候选景点坐标验证
   -> budget_feasibility
   -> candidate_selection
   -> candidate_validation
@@ -143,9 +146,9 @@ booking_slot_guard
 
 草稿创建与 `interrupt()` 位于不同节点，因此恢复执行不会重复创建草稿。确认时再次校验 `user_id`、`conversation_id`、`plan_id` 和 `plan_version`；草稿过期、方案版本变化或选项不属于当前方案时均不会提交。LangGraph State 和中断载荷不包含 token、hash、支付信息或供应商订单号。
 
-默认使用可测试的 `RuleBasedIntentAgent`；正式模型通过 `LangChainIntentAgent` 注入，并使用 Pydantic structured output。模型只提出结构化意图，缺失槽位、流程路由和工具白名单均由代码决定。Query、Planning、Modify 与 Booking 均为编译后的 SubGraph。
+默认使用可测试的 `RuleBasedIntentAgent`；正式模型通过 `LangChainIntentAgent` 注入，并使用 Pydantic structured output。输出同时包含主意图和最多 8 个 `IntentTask`。天气、酒店、交通和普通问答可以拆成任务级查询并通过 `Send` 并行执行；完整规划会吸收这些研究需求，修改、记忆和预订仍保持单一受控主流程。模型返回 `unknown` 或漏掉明显复合查询时由代码规则修复。缺失槽位、流程路由和工具白名单均由代码决定。Query、Planning、Modify 与 Booking 均为编译后的 SubGraph。
 
-项目保留 `weather`、`hotel_search`、`train_search`、`flight_search`、`poi_search`、`route_matrix`、`opening_hours`、`ticket` 的统一 `ToolResult` 契约，但当前根图只启用天气演示接口。其余阶段由模型生成 `AI_KNOWLEDGE` 研究数据，绝不标记为实时价格、天气或余量；以后接入真实 Provider 时可逐项替换。
+项目保留 `weather`、`hotel_search`、`train_search`、`flight_search`、`poi_search`、`poi_coordinates`、`route_matrix`、`opening_hours`、`ticket` 的统一 `ToolResult` 契约。当前用户运行时启用 Open-Meteo、Nominatim 和 OSRM；其余阶段由模型生成 `AI_KNOWLEDGE` 研究数据，绝不标记为实时价格、班次或余量，以后可逐项替换为合规 Provider。
 
 `ToolErrorHandler` 支持 `retry/fallback/continue/abort`。可重试错误最多额外执行一次。当前天气接口失败时可降级；研究 Agent 失败时由规则研究器生成明确标记为 `OFFLINE_FALLBACK` 的保守候选，仍需经过候选校验和最终质量门禁。
 
@@ -165,6 +168,7 @@ Phase 8 将有效方案保存为 `PersistedPlanState`，其中包含 `TravelPlan
 | `messages` | `AnyMessage` 列表，使用 LangGraph `add_messages` reducer |
 | `intent` | 严格 `Intent` 枚举 |
 | `intent_confidence` | IntentAgent 置信度，仅用于观测，不直接控制路由 |
+| `intent_tasks` | 本轮可独立回答的结构化子任务，各自保存问题片段、意图和实体 |
 | `entities` | `TravelEntities`，包含日期、人数、预算范围和币种 |
 | `user_preferences` | MySQL 长期偏好快照 |
 | `effective_preferences` | 本轮明确需求覆盖长期偏好后的运行时画像 |
@@ -188,6 +192,7 @@ Phase 8 将有效方案保存为 `PersistedPlanState`，其中包含 `TravelPlan
 | `selected_tools` | 本轮通过代码白名单选择并执行过的工具 |
 | `pending_tools`, `active_tool` | `Send` 动态分发使用的瞬时字段 |
 | `tool_results` | `ToolResult` 映射，支持并行结果合并 reducer |
+| `query_task_results` | 按 `task_id -> tool_name` 隔离的查询结果，避免多城市并行查询串数据 |
 | `tool_errors` | 结构化错误列表 |
 | `tool_attempts` | 每个工具本轮实际调用次数，最大为 2 |
 | `tool_abort_requested` | 必要工具失败后的代码中止标记 |
@@ -206,7 +211,7 @@ Phase 8 将有效方案保存为 `PersistedPlanState`，其中包含 `TravelPlan
 
 | 组件 | 职责 |
 | --- | --- |
-| IntentAgent | 已实现：结构化意图与实体抽取，不直接调用工具或决定图节点 |
+| IntentAgent | 已实现：主意图、复合只读子任务与实体抽取，并用代码守卫修复 `unknown`，不直接调用工具或决定图节点 |
 | MemoryCandidateAgent | 已实现：按 Dify V3 Prompt 提取稳定习惯，经代码隐私/置信度门禁后写入 MySQL |
 | Supervisor | 已实现：根据 Intent、代码槽位守卫和固定映射进行条件路由 |
 | Phase1ResearchAgent | 已实现：生成天气上下文、住宿区域、交通方式和景点候选宽搜结果 |
@@ -218,10 +223,13 @@ Phase 8 将有效方案保存为 `PersistedPlanState`，其中包含 `TravelPlan
 | RevisionAgent | 已实现：根据校验反馈修订时间、住宿晚数和可削减票价项目，最多两轮 |
 | ModifyAnalyzerAgent | 已实现：提取目标日、时段、替换景点、预算变化、删除标签和交换日期 |
 | ModifyAgent | 已实现：复制当前方案、应用修改、刷新工具结果并生成 `version + 1` 草稿 |
-| ToolSelector | 已实现：单项查询按意图执行代码白名单，未知或越权工具不会执行 |
-| ToolRegistry | 已实现：注册 Mock/真实 Provider 适配器，不允许 Agent 直接调用任意函数 |
+| ToolSelector | 已实现：每个查询子任务独立执行代码白名单，未知或越权工具不会执行 |
+| ToolRegistry | 已实现：注册 Mock/真实 Provider 适配器，并区分实时能力；不允许 Agent 直接调用任意函数 |
 | ToolExecutor | 已实现：统一执行、异常封装、尝试次数和错误记录 |
 | ToolErrorHandler | 已实现：最多一次重试，并执行 fallback/continue/abort 策略 |
+| OpenMeteoWeatherProvider | 已实现：地点解析、当前天气与逐日预报；无需密钥 |
+| OsrmRouteProvider | 已实现：仅使用候选景点中的可信经纬度查询真实距离和通行时间 |
+| Supplier Provider Contracts | 已实现：酒店、火车、飞机、门票请求契约；待接入合规供应商 API |
 | Booking Slot Guard | 已实现：校验预订类型、方案版本及 option ID 是否属于当前方案 |
 | BookingBackend | 已实现 Mock 契约：创建、确认、取消草稿；生产环境由 Java API 适配器实现 |
 | MySQLRepositories | 已实现：长期偏好、不可变方案版本和当前版本原子切换 |
@@ -282,7 +290,7 @@ uv venv --python 3.13 .venv
 uv sync --extra dev
 .\.venv\Scripts\python.exe scripts\bootstrap_infrastructure.py
 .\.venv\Scripts\python.exe -m pytest
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8002
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
 接口：
@@ -345,8 +353,8 @@ POST /v1/agent/runs/resume
 
 1. Redis：本机使用普通 Redis 兼容 Saver；生产可换 Redis Stack 官方 Saver，图节点无需修改。
 2. MySQL：已实现 `UserPreferenceRepository` 和 `PlanRepository`，只保存通过校验的不可变版本。
-3. Vector DB：Chroma 已持久化和隔离知识库；下一步把 `poi_search_tool` 从 Mock 切换到 RAG Retriever，并接入 BGE Embedding。
-4. 外部 API：在 `ToolRegistry` 中用真实 Provider 适配器替换同名 Mock Tool，并补充超时、熔断、缓存和来源时间。
+3. Vector DB：Chroma 已持久化和隔离知识库；下一步把景点知识检索切换到 RAG Retriever，并接入 BGE Embedding。
+4. 外部 API：Open-Meteo 与 OSRM 已接入；后续通过现有 Provider 契约接入酒店、火车、飞机和门票供应商。当前已包含超时、一次重试、降级、来源和抓取时间。
 5. Java Booking API：LangGraph 只传选项和方案引用，接收 `draft_id/status/expire_time`；安全凭据不进入 State。
 
 ## DeepSeek 模型配置
@@ -362,6 +370,23 @@ POST /v1/agent/runs/resume
 未配置密钥或模型调用失败时自动回退规则 Agent，`GET /health/infrastructure` 会返回当前
 `llm` 状态。
 
+## 实时工具配置
+
+默认配置不需要天气或路线密钥：
+
+```dotenv
+TOOL_HTTP_TIMEOUT_SECONDS=10
+OPEN_METEO_BASE_URL=https://api.open-meteo.com/v1
+OPEN_METEO_GEOCODING_URL=https://geocoding-api.open-meteo.com/v1
+OSRM_BASE_URL=https://router.project-osrm.org
+NOMINATIM_BASE_URL=https://nominatim.openstreetmap.org
+NOMINATIM_USER_AGENT=oneclick-trip/0.8 (educational travel agent)
+```
+
+`ToolResult.data_mode=REALTIME` 才会覆盖 AI 估算路线。候选景点还必须具有非模型来源的 `coordinate_source` 和 `coordinates_verified=true`；大模型给出的坐标会被强制标记为未验证。坐标缺失或未验证时，路线工具返回明确错误并降级为空结果，不会制造公里数。OSRM 公共服务适合开发验证；正式部署应替换为自建 OSRM 或有服务保障的地图供应商，图节点无需变化。
+
+天气地点优先由 Open-Meteo 解析。区县无法识别时才使用 Nominatim 行政区回退，并限制中国范围、过滤非行政区结果、使用专用 User-Agent、进程内缓存且最多每秒一次请求。公共 Nominatim 仅适合低流量开发演示，生产环境应改为自建服务或国内合规地图 API。
+
 ## 阶段状态
 
 - [x] Phase 1：结构、State、Graph Skeleton、Supervisor Skeleton、FastAPI、Checkpoint 测试
@@ -373,5 +398,8 @@ POST /v1/agent/runs/resume
 - [x] Phase 7：Booking SubGraph、Java Backend Mock、Human Interrupt、草稿绑定与恢复 API
 - [x] Phase 8：MySQL 方案/偏好仓储、普通 Redis Checkpoint、Chroma 持久化与 Memory Flow
 - [x] Phase 9（第一部分）：DeepSeek V4 Flash/Pro、结构化输出、规则 Agent 容错回退
+- [x] B-01（第一部分）：统一 ToolResult 元数据、Provider 契约、Open-Meteo 天气、OSRM 路线、真实/Mock 能力隔离
+- [x] B-02：Pandas 清洗、人工审核、混合检索、BGE 向量与 Chroma 发布
+- [x] B-03：JWT 身份边界、Java 偏好/方案仓库、订单草稿、token hash 与幂等确认
 
-下一步继续 Phase 9：接入 `bge-small-zh-v1.5`、多知识库 RAG 和联网旅游工具，把当前 Mock 数据逐步替换为带来源与时间戳的真实结果。
+下一阶段进入 B-04 管理后台与可观测性；酒店、铁路、航班和门票真实供应商仍按需要逐步替换 Provider。
