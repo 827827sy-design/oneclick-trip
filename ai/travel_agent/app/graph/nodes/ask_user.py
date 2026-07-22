@@ -121,19 +121,23 @@ def _clarification_actions(
 
     builders = {
         "destination": _destination_actions,
+        "origin": _origin_actions,
         "duration": _duration_actions,
         "people": _people_actions,
         "budget": _budget_actions,
         "booking_type": _booking_type_actions,
         "intent": _intent_actions,
+        "preference_update": _preference_update_actions,
     }
     prompts = {
         "destination": "先选一个目的地，也可以输入其他城市",
+        "origin": "你准备从哪个城市出发？",
         "duration": "旅行准备玩几天？具体日期也可以直接输入",
         "people": "这次一共几个人出发？",
         "budget": "选一个总预算，也可以直接输入其他金额",
         "booking_type": "这次准备预订什么？",
         "intent": "这次想让我帮你做什么？",
+        "preference_update": "想让我记住或调整什么旅行习惯吗？",
     }
     for field in state.get("missing_fields", []):
         builder = builders.get(field)
@@ -192,6 +196,26 @@ def _booking_type_actions() -> list[ClarificationAction]:
         _action("booking-train", "booking_type", "火车票", "帮我购买火车票"),
         _action("booking-flight", "booking_type", "机票", "帮我购买机票"),
         _action("booking-ticket", "booking_type", "景点门票", "帮我购买景点门票"),
+    ]
+
+
+def _origin_actions() -> list[ClarificationAction]:
+    return [
+        _action("origin-beijing", "origin", "北京", "我从北京出发"),
+        _action("origin-shanghai", "origin", "上海", "我从上海出发"),
+        _action("origin-guangzhou", "origin", "广州", "我从广州出发"),
+        _action("origin-nanjing", "origin", "南京", "我从南京出发"),
+        _action("origin-hangzhou", "origin", "杭州", "我从杭州出发"),
+        _action("origin-shenzhen", "origin", "深圳", "我从深圳出发"),
+    ]
+
+
+def _preference_update_actions() -> list[ClarificationAction]:
+    return [
+        _action("pref-like-food", "preference_update", "喜欢美食", "记住：我喜欢美食，优先推荐本地特色"),
+        _action("pref-like-nature", "preference_update", "喜欢自然风光", "记住：我喜欢自然风光，优先推荐户外景点"),
+        _action("pref-like-slow", "preference_update", "喜欢慢节奏", "记住：我喜欢慢节奏，行程不要太赶"),
+        _action("pref-dislike-crowded", "preference_update", "避开拥挤", "记住：我讨厌人多的地方，尽量避开"),
     ]
 
 

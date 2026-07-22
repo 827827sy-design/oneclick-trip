@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 from app.domain.models import (
@@ -34,9 +34,11 @@ class HardValidator:
         warnings: list[ValidationIssue] = []
         self._validate_duration(plan, entities, errors)
         self._validate_hotel_nights(plan, errors)
+        self._validate_dates(plan, entities, errors)
         self._validate_budget(plan, entities, errors, warnings)
         self._validate_schedule(plan, phase2, errors, warnings)
         self._validate_routes(phase2, errors)
+        self._validate_cost_sum(plan, errors, warnings)
         return HardValidationResult(
             hard_pass=not errors,
             errors=errors,
@@ -245,6 +247,57 @@ class HardValidator:
                         message=f"{leg.from_id} 到 {leg.to_id} 的路线距离或耗时过大",
                     )
                 )
+
+    @staticmethod
+    def _validate_dates(
+        plan: TravelPlan,
+        entities: TravelEntities,
+        errors: list[ValidationIssue],
+    ) -> None:
+        if not entities.start_date:
+            return
+        start = entities.start_date
+        end = entities.end_date
+        if end is None and entities.days:
+            from datetime import timedelta
+            end = start + timedelta(days=entities.days - 1)
+        if end is None:
+            return
+        for day in plan.days:
+            if day.date is None:
+                continue
+            if day.date < start or day.date > end:
+                errors.append(
+                    ValidationIssue(
+                        code="DATE_OUT_OF_RANGE",
+                        message=f"第{day.day_index}天日期 {day.date} 不在旅行范围内 ({start} 至 {end})",
+                        day_index=day.day_index,
+                    )
+                )
+
+    @staticmethod
+    def _validate_cost_sum(
+        plan: TravelPlan,
+        errors: list[ValidationIssue],
+        warnings: list[ValidationIssue],
+    ) -> None:
+        item_total = Decimal("0")
+        for day in plan.days:
+            for item in day.items:
+                item_total += item.estimated_cost or Decimal("0")
+        if item_total == Decimal("0"):
+            return
+        diff = abs(plan.total_cost - item_total)
+        if plan.total_cost > Decimal("0") and diff > plan.total_cost * Decimal("0.15"):
+            warnings.append(
+                ValidationIssue(
+                    code="COST_SUM_MISMATCH",
+                    message=(
+                        f"行程项费用合计 {item_total} 与总费用 {plan.total_cost} "
+                        f"相差 {diff}（超过 15%），建议核实"
+                    ),
+                )
+            )
 
     @staticmethod
     def _item_bounds(

@@ -38,3 +38,8 @@ include = ["app*"]
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-q -p no:cacheprovider"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

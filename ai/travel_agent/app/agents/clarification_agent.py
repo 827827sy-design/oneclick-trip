@@ -17,7 +17,7 @@ from app.domain.models import (
 
 FIELD_LABELS = {
     "destination": "想去哪里",
-    "origin": "从哪里出发",
+    "origin": "从哪个城市出发",
     "duration": "旅行天数或出发与返程日期",
     "people": "同行人数",
     "budget": "大概预算",

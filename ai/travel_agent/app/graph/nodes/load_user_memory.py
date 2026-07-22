@@ -1,3 +1,6 @@
+from collections.abc import Callable
+
+from app.database.contracts import UserPreferenceRepository
 from app.domain.models import NextAction, UserPreferences
 from app.graph.state import TravelState, TravelStatePatch
 
@@ -21,6 +24,3 @@ def make_load_user_memory_node(
         }
 
     return load_persisted_user_memory
-from collections.abc import Callable
-
-from app.database.contracts import UserPreferenceRepository

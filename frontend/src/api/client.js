@@ -48,20 +48,32 @@ export async function apiRequest(path, options = {}) {
   }
   const token = getToken()
   if (token) {
-    // 后端 JwtAuthenticationFilter 会读取这个请求头。
     headers.Authorization = `Bearer ${token}`
   }
 
-  const response = await fetch(path, {
-    ...options,
-    headers
-  })
-  const body = await response.json().catch(() => null)
-  if (!response.ok || body?.success === false) {
-    throw new Error(body?.message || `请求失败：${response.status}`)
+  const timeout = options.timeout || 60000
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeout)
+  try {
+    const response = await fetch(path, {
+      ...options,
+      headers,
+      signal: controller.signal
+    })
+    clearTimeout(timeoutId)
+    const body = await response.json().catch(() => null)
+    if (!response.ok || body?.success === false) {
+      throw new Error(body?.message || `请求失败：${response.status}`)
+    }
+    // 后端统一返回 { success, message, data }，前端页面通常只需要 data。
+    return body?.data
+  } catch (error) {
+    clearTimeout(timeoutId)
+    if (error.name === 'AbortError') {
+      throw new Error('请求超时，Agent 处理时间过长，请简化问题后重试')
+    }
+    throw error
   }
-  // 后端统一返回 { success, message, data }，前端页面通常只需要 data。
-  return body?.data
 }
 
 // 页面里只调用 api.login、api.cities 这种语义化方法，不直接写 fetch。

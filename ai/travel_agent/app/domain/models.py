@@ -138,6 +138,7 @@ class UserPreferences(DomainModel):
     typical_budget_scope: BudgetScope | None = None
     memory_items: list[MemoryItem] = Field(default_factory=list)
     source_version: int = 0
+    updated_at: DateTime = Field(default_factory=lambda: DateTime.now(UTC))
 
 
 class IntentContext(DomainModel):

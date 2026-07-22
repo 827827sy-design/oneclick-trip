@@ -1,3 +1,6 @@
+from collections.abc import Callable
+
+from app.database.contracts import PlanRepository
 from app.domain.models import NextAction
 from app.graph.state import TravelState, TravelStatePatch
 
@@ -36,6 +39,3 @@ def make_load_conversation_state_node(
         }
 
     return load_persisted_conversation
-from collections.abc import Callable
-
-from app.database.contracts import PlanRepository

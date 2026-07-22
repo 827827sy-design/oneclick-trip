@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC, datetime as DateTime
 
 from langchain_core.messages import AIMessage
 
@@ -69,6 +70,7 @@ def _preference_patch(state: TravelState, *, include_message: bool) -> TravelSta
             "liked_tags": liked,
             "disliked_tags": disliked,
             "source_version": current.source_version + 1,
+            "updated_at": DateTime.now(UTC),
         }
     )
     patch: TravelStatePatch = {

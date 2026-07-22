@@ -170,7 +170,22 @@ class RuleBasedIntentAgent:
             len(cities) >= 2
             and re.search(r".+?(?:去|到|前往).+", text)
         )
-        if len(cities) >= 2 and (intent is Intent.TRANSPORT_QUERY or has_explicit_direction):
+        # "从北京出发" sets origin without needing a direction word to destination
+        explicit_origin_match = re.search(r"从\s*(" + "|".join(self.DESTINATION_NAMES) + r")\s*(?:出发|走|离开)", text)
+        if explicit_origin_match:
+            origin_city = explicit_origin_match.group(1)
+            if cities and cities[0] == origin_city and len(cities) >= 2:
+                # "从北京出发，去成都" → origin=北京, dest=成都
+                values["origin"], values["destination"] = cities[0], cities[1]
+            elif origin_city in cities:
+                # 北京 is both in text, mark it as origin
+                values["origin"] = origin_city
+                remaining = [c for c in cities if c != origin_city]
+                if remaining:
+                    values["destination"] = remaining[-1]
+            else:
+                values["origin"] = origin_city
+        elif len(cities) >= 2 and (intent is Intent.TRANSPORT_QUERY or has_explicit_direction):
             values["origin"], values["destination"] = cities[0], cities[-1]
         elif cities:
             values["destination"] = cities[-1]

@@ -195,6 +195,13 @@
             <button type="button" aria-label="查看会话记录" @click="openConversationHistory"><el-icon><EditPen /></el-icon></button>
           </div>
 
+          <div class="skip-preferences" v-if="latestAgentPreferences && hasActivePreferences">
+            <label class="skip-toggle">
+              <input type="checkbox" v-model="skipPreferencesThisTurn" @change="onSkipPreferencesToggle" />
+              <span>这次不用历史偏好</span>
+            </label>
+          </div>
+
           <div ref="chatListRef" class="chat-list">
             <div v-if="!chatTurns.length" class="message assistant">
               <span class="assistant-avatar"><el-icon><Compass /></el-icon></span>
@@ -217,9 +224,9 @@
                 <div class="agent-live-status">
                   <div>
                     <el-icon class="spin"><Loading /></el-icon>
-                    <span>Agent 正在处理</span>
+                    <span>{{ turn.loadingPhase || 'Agent 正在处理' }}</span>
                   </div>
-                  <p>识别意图并调用本次需要的工具</p>
+                  <p>{{ turn.loadingSubtext || '识别意图并调用本次需要的工具' }}</p>
                   <span class="loading-track"><i></i></span>
                 </div>
               </div>
@@ -227,9 +234,13 @@
               <div v-else-if="turn.error" class="message assistant">
                 <span class="assistant-avatar"><el-icon><Compass /></el-icon></span>
                 <div class="message-body agent-error" role="alert">
-                  <strong>这次没有处理成功</strong>
+                  <strong>{{ turn.errorTitle || '这次没有处理成功' }}</strong>
                   <p>{{ turn.error }}</p>
-                  <button type="button" @click="retryAgentTurn(turn)">重新尝试</button>
+                  <div class="error-actions">
+                    <button type="button" @click="retryAgentTurn(turn)"><el-icon><Refresh /></el-icon>重新尝试</button>
+                    <button v-if="turn.retryable !== false" type="button" @click="handleAgentTimeoutFallback(turn)">用简化模式重试</button>
+                  </div>
+                  <small v-if="turn.errorCode">{{ turn.errorCode }}</small>
                 </div>
               </div>
 
@@ -557,7 +568,10 @@
               <span><strong>{{ currentUser?.nickname || '旅行者' }}</strong><small>@{{ currentUser?.username || 'traveler' }}</small></span>
               <el-icon><ArrowRight /></el-icon>
             </button>
-            <div class="profile-tags"><span>慢节奏</span><span>吃货</span><span>城市漫游</span></div>
+            <div class="profile-tags">
+              <span v-if="!preferenceTagsDisplay.length">还没有旅行偏好，去聊天页让 AI 了解你</span>
+              <span v-for="tag in preferenceTagsDisplay" :key="tag">{{ tag }}</span>
+            </div>
           </header>
 
           <div class="travel-stats">
@@ -578,7 +592,7 @@
           <div class="mine-menu">
             <button type="button" @click="showToast('订单中心为演示入口')"><span><el-icon><Tickets /></el-icon>我的订单</span><el-icon><ArrowRight /></el-icon></button>
             <button type="button" @click="showToast('收藏夹为演示入口')"><span><el-icon><Star /></el-icon>我的收藏</span><el-icon><ArrowRight /></el-icon></button>
-            <button type="button" @click="go('chat')"><span><el-icon><UserFilled /></el-icon>旅行偏好</span><el-icon><ArrowRight /></el-icon></button>
+            <button type="button" @click="openPreferences"><span><el-icon><UserFilled /></el-icon>旅行偏好</span><el-icon><ArrowRight /></el-icon></button>
             <button type="button" @click="showToast('消息中心为演示入口')"><span><el-icon><Bell /></el-icon>消息通知</span><el-icon><ArrowRight /></el-icon></button>
           </div>
 
@@ -624,6 +638,44 @@
               </div>
             </fieldset>
           </form>
+        </section>
+
+        <section v-show="activePage === 'preferences'" class="screen preferences-screen">
+          <AppHeader title="旅行偏好" subtitle="管理 AI 记住的偏好" @back="go('mine')" />
+
+          <div class="preferences-intro">
+            <span><el-icon><MagicStick /></el-icon></span>
+            <div><strong>AI 会从对话中学习你的习惯</strong><p>带有"以后""通常""习惯"标记的表达会被记住，你也可以手动管理。</p></div>
+          </div>
+
+          <div v-if="!managedPreferences.length" class="preferences-empty">
+            <span><el-icon><UserFilled /></el-icon></span>
+            <h3>还没有保存的旅行偏好</h3>
+            <p>去聊天页多说几次你的习惯，比如"我以后都优先选高铁"、"我通常不喜欢太赶的行程"</p>
+            <button type="button" @click="go('chat')">去和 AI 聊聊</button>
+          </div>
+
+          <div v-else class="preferences-list">
+            <article v-for="(pref, index) in managedPreferences" :key="index" class="preference-item">
+              <span class="pref-icon">
+                <el-icon v-if="pref.type === 'like'"><CircleCheck /></el-icon>
+                <el-icon v-else><CircleClose /></el-icon>
+              </span>
+              <div class="pref-content">
+                <strong>{{ pref.label }}</strong>
+                <small>{{ pref.source || '从对话中学习' }}</small>
+              </div>
+              <button type="button" class="pref-delete" aria-label="删除这个偏好" @click="removePreference(index)">
+                <el-icon><Delete /></el-icon>
+              </button>
+            </article>
+          </div>
+
+          <div class="preferences-actions" v-if="managedPreferences.length">
+            <button type="button" class="secondary-button" @click="clearAllPreferences">
+              <el-icon><Delete /></el-icon> 清除全部偏好
+            </button>
+          </div>
         </section>
       </div>
 
@@ -741,6 +793,26 @@ const selectedDayNo = ref(1)
 const bookingItem = ref('')
 let toastTimer = null
 let chatTurnId = 0
+const skipPreferencesThisTurn = ref(false)
+
+const hasActivePreferences = computed(() => {
+  const preferences = latestAgentPreferences.value
+  if (!preferences) return false
+  return Boolean(
+    (preferences.liked_tags || []).length ||
+    (preferences.disliked_tags || []).length ||
+    preferences.pace ||
+    preferences.typical_budget_scope
+  )
+})
+
+function onSkipPreferencesToggle() {
+  if (skipPreferencesThisTurn.value) {
+    showToast('本次对话将忽略历史偏好，只按你说的来')
+  } else {
+    showToast('已恢复使用历史偏好')
+  }
+}
 
 const loginForm = reactive({
   username: 'admin',
@@ -902,6 +974,15 @@ const profileSummary = computed(() => {
   if (preferences.pace) labels.push(preferences.pace === 'relaxed' ? '慢节奏' : preferences.pace)
   if (preferences.typical_budget_scope === 'per_person') labels.push('习惯看人均预算')
   return labels.length ? labels.slice(0, 4).join(' · ') : '偏好仍在了解中，本次明确需求会优先'
+})
+
+const preferenceTagsDisplay = computed(() => {
+  const preferences = latestAgentPreferences.value
+  if (!preferences) return []
+  const tags = [...(preferences.liked_tags || [])]
+  if (preferences.pace) tags.push(preferences.pace === 'relaxed' ? '慢节奏' : preferences.pace)
+  if (preferences.typical_budget_scope === 'per_person') tags.push('人均预算')
+  return tags.slice(0, 6)
 })
 const guideHeroBackground = computed(() => {
   return "linear-gradient(180deg, rgba(20, 34, 29, 0.08), rgba(20, 34, 29, 0.72)), url('" + selectedGuide.value.image + "')"
@@ -1158,6 +1239,55 @@ function openProfileEdit() {
   activePage.value = 'profileEdit'
 }
 
+function openPreferences() {
+  activePage.value = 'preferences'
+}
+
+const managedPreferences = computed(() => {
+  const preferences = latestAgentPreferences.value
+  if (!preferences) return []
+  const items = []
+  for (const tag of (preferences.liked_tags || [])) {
+    items.push({ type: 'like', label: tag, source: 'AI 从对话中学习' })
+  }
+  for (const tag of (preferences.disliked_tags || [])) {
+    items.push({ type: 'dislike', label: tag, source: 'AI 从对话中学习' })
+  }
+  if (preferences.pace) {
+    const label = preferences.pace === 'relaxed' ? '慢节奏' : preferences.pace
+    items.push({ type: 'like', label, source: 'AI 从对话中学习' })
+  }
+  if (preferences.typical_budget_scope === 'per_person') {
+    items.push({ type: 'like', label: '习惯看人均预算', source: 'AI 从对话中学习' })
+  }
+  return items
+})
+
+function removePreference(index) {
+  const pref = managedPreferences.value[index]
+  if (!pref) return
+  // Send a message to the AI to remove this preference
+  const message = pref.type === 'dislike'
+    ? `以后不要记住"不喜欢${pref.label}"了`
+    : `以后不要记住"喜欢${pref.label}"了`
+  // Clear current chat and send the preference removal
+  activePage.value = 'chat'
+  currentConversationId.value = ''
+  chatTurns.value = []
+  showToast('正在让 AI 更新偏好...')
+  sendAgentMessage(message)
+}
+
+function clearAllPreferences() {
+  const confirmed = window.confirm('确定清除所有旅行偏好吗？AI 将重新了解你的习惯。')
+  if (!confirmed) return
+  activePage.value = 'chat'
+  currentConversationId.value = ''
+  chatTurns.value = []
+  latestAgentPreferences.value = null
+  showToast('偏好已清除，AI 将重新了解你的习惯')
+}
+
 async function handleProfileUpdate() {
   profileError.value = ''
   if (!profileForm.nickname) {
@@ -1236,10 +1366,14 @@ function useSuggestion(message) {
 async function sendAgentMessage(message) {
   const text = (message || '').trim()
   if (!text || agentRequestRunning.value) return
-  if (!currentConversationId.value) {
+  if (!currentConversationId.value || skipPreferencesThisTurn.value) {
     const created = await api.createAiConversation()
     setCurrentConversation(created.conversationId)
     conversationList.value.unshift(created)
+    if (skipPreferencesThisTurn.value) {
+      chatTurns.value = []
+      latestAgentPreferences.value = null
+    }
   }
 
   const turn = {
@@ -1260,19 +1394,67 @@ async function runAgentTurn(turn) {
   agentRequestRunning.value = true
   turn.loading = true
   turn.error = ''
+  const phaseTimer = startLoadingPhases(turn)
   try {
     const data = await api.aiChat(turn.userText)
+    stopLoadingPhases(phaseTimer)
+    turn.loadingPhase = '正在整理结果'
+    turn.loadingSubtext = '格式化回复中…'
     turn.response = normalizeAgentResponse(data)
     latestAgentPreferences.value = data?.agentState?.user_preferences || latestAgentPreferences.value
     backendOnline.value = true
     await loadConversations(false)
   } catch (error) {
-    turn.error = error.message || 'Agent 服务暂时不可用，请稍后再试'
+    stopLoadingPhases(phaseTimer)
+    const msg = error.message || 'Agent 服务暂时不可用，请稍后再试'
+    turn.error = msg
+    if (msg.includes('超时') || msg.includes('timeout')) {
+      turn.errorTitle = '处理超时'
+      turn.errorCode = 'TIMEOUT'
+    } else if (msg.includes('502') || msg.includes('不可用')) {
+      turn.errorTitle = 'AI 服务暂时不可用'
+      turn.errorCode = 'SERVICE_DOWN'
+    } else if (msg.includes('网络') || msg.includes('fetch')) {
+      turn.errorTitle = '网络连接失败'
+      turn.errorCode = 'NETWORK_ERROR'
+    }
   } finally {
     turn.loading = false
     agentRequestRunning.value = false
     await scrollChatToBottom()
   }
+}
+
+const LOADING_PHASES = [
+  { phase: '正在理解你的需求', sub: '识别意图与提取关键信息', duration: 800 },
+  { phase: '正在研究目的地', sub: '检索天气、景点与交通信息', duration: 3000 },
+  { phase: '正在核算预算', sub: '评估费用与住宿选项', duration: 3000 },
+  { phase: '正在生成行程', sub: '编排每日路线与时间安排', duration: 3000 },
+  { phase: '正在校验质量', sub: '检查时间冲突与预算合理性', duration: 2000 },
+]
+
+function startLoadingPhases(turn) {
+  let index = 0
+  turn.loadingPhase = LOADING_PHASES[0].phase
+  turn.loadingSubtext = LOADING_PHASES[0].sub
+  const timer = setInterval(() => {
+    index = Math.min(index + 1, LOADING_PHASES.length - 1)
+    turn.loadingPhase = LOADING_PHASES[index].phase
+    turn.loadingSubtext = LOADING_PHASES[index].sub
+  }, LOADING_PHASES[Math.min(index, LOADING_PHASES.length - 2)]?.duration || 3000)
+  return timer
+}
+
+function stopLoadingPhases(timer) {
+  if (timer) clearInterval(timer)
+}
+
+function handleAgentTimeoutFallback(turn) {
+  turn.error = ''
+  turn.response = null
+  turn.retryable = false
+  showToast('正在用简化模式处理…')
+  retryAgentTurn(turn)
 }
 
 async function retryAgentTurn(turn) {
