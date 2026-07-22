@@ -5,12 +5,18 @@ from decimal import Decimal
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import Runnable, RunnableLambda
 
-from app.agents.intent_agent import IntentAgent
+from app.agents.intent_agent import (
+    IntentAgent,
+    RuleBasedIntentAgent,
+    enforce_code_owned_intent,
+    infer_query_tasks,
+)
 from app.domain.models import (
     BudgetMode,
     BudgetScope,
     Intent,
     IntentContext,
+    IntentTask,
     NextAction,
     TravelEntities,
     UserPreferences,
@@ -98,6 +104,7 @@ def make_intent_recognition_node(
         )
 
     def patch_from(state: TravelState, decision, query: str) -> TravelStatePatch:
+        decision = _repair_intent_decision(query, decision)
         previous = state.get("entities") or TravelEntities()
         explicit_update = _sanitize_explicit_update(
             state,
@@ -126,10 +133,18 @@ def make_intent_recognition_node(
             }
         )
         merged_entities = base.model_copy(update=explicit_update)
+        intent_tasks = _normalize_intent_tasks(
+            state,
+            query,
+            decision.tasks,
+            intent,
+            merged_entities,
+        )
         return {
             **reset_tool_execution(),
             "intent": intent,
             "intent_confidence": decision.confidence,
+            "intent_tasks": intent_tasks,
             "entities": merged_entities,
             "missing_fields": decision.advisory_missing_fields,
             "clarification_reply": None,
@@ -165,6 +180,80 @@ def make_intent_recognition_node(
     return RunnableLambda(recognize_intent, afunc=arecognize_intent, name="recognize_intent")
 
 
+def _repair_intent_decision(query: str, decision):
+    """Reject structurally valid but unusable LLM routing decisions."""
+    return enforce_code_owned_intent(query, decision)
+
+
+def _normalize_intent_tasks(
+    state: TravelState,
+    query: str,
+    model_tasks: list[IntentTask],
+    primary_intent: Intent,
+    primary_entities: TravelEntities,
+) -> list[IntentTask]:
+    if primary_intent not in QUERY_INTENTS:
+        return [
+            IntentTask(
+                task_id="task-1",
+                query=query,
+                intent=primary_intent,
+                entities=primary_entities,
+            )
+        ]
+
+    code_tasks = infer_query_tasks(query)
+    valid_model_tasks = [item for item in model_tasks if item.intent in QUERY_INTENTS]
+    candidates = (
+        code_tasks
+        if len(code_tasks) > 1
+        else valid_model_tasks
+        if len(valid_model_tasks) > 1
+        else code_tasks or valid_model_tasks
+    )
+    normalized: list[IntentTask] = []
+    for index, task in enumerate(candidates or []):
+        task_query = task.query.strip() or query
+        explicit = _sanitize_explicit_update(
+            state,
+            task_query,
+            task.entities.model_dump(exclude_unset=True),
+        )
+        entities = _query_task_entities(primary_entities, explicit, task.intent)
+        normalized.append(
+            IntentTask(
+                task_id=f"task-{index + 1}",
+                query=task_query,
+                intent=task.intent,
+                entities=entities,
+            )
+        )
+    return normalized or [
+        IntentTask(
+            task_id="task-1",
+            query=query,
+            intent=primary_intent,
+            entities=primary_entities,
+        )
+    ]
+
+
+def _query_task_entities(
+    shared: TravelEntities,
+    explicit: dict,
+    intent: Intent,
+) -> TravelEntities:
+    values = dict(explicit)
+    shared_fields = ["destination", "start_date", "end_date", "days", "currency"]
+    if intent is Intent.TRANSPORT_QUERY:
+        shared_fields.append("origin")
+    for field in shared_fields:
+        value = getattr(shared, field)
+        if values.get(field) in (None, "") and value is not None:
+            values[field] = value
+    return TravelEntities(**values)
+
+
 def _resolve_intent_for_slot_follow_up(
     state: TravelState,
     detected_intent,
@@ -188,6 +277,7 @@ def _resolve_intent_for_slot_follow_up(
 
     slot_keys = {
         "destination": {"destination"},
+        "destination_detail": {"destination"},
         "origin": {"origin"},
         "duration": {"days", "start_date", "end_date"},
         "people": {"people"},

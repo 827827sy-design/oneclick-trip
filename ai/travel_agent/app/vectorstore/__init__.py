@@ -1,3 +1,4 @@
+from app.vectorstore.bge_onnx import BgeSmallZhV15EmbeddingFunction
 from app.vectorstore.chroma import (
     ChromaTravelKnowledgeBase,
     HashEmbeddingFunction,
@@ -6,6 +7,7 @@ from app.vectorstore.chroma import (
 )
 
 __all__ = [
+    "BgeSmallZhV15EmbeddingFunction",
     "ChromaTravelKnowledgeBase",
     "HashEmbeddingFunction",
     "KnowledgeDocument",

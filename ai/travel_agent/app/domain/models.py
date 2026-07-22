@@ -57,6 +57,7 @@ class BookingStatus(StrEnum):
 
 
 class ToolName(StrEnum):
+    KNOWLEDGE_SEARCH = "knowledge_search"
     TRAVEL_RESEARCH = "travel_research"
     XIAOHONGSHU_RESEARCH = "xiaohongshu_research"
     WEATHER = "weather"
@@ -167,11 +168,26 @@ class IntentContext(DomainModel):
     booking_status: BookingStatus | None = None
 
 
+class IntentTask(DomainModel):
+    """One independently answerable request extracted from the current turn."""
+
+    task_id: str = ""
+    query: str = Field(min_length=1, max_length=2000)
+    intent: Intent
+    entities: TravelEntities = Field(default_factory=TravelEntities)
+
+
+class QueryToolCall(DomainModel):
+    task_id: str
+    tool_name: ToolName
+
+
 class IntentDecision(DomainModel):
     intent: Intent
     entities: TravelEntities = Field(default_factory=TravelEntities)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     advisory_missing_fields: list[str] = Field(default_factory=list)
+    tasks: list[IntentTask] = Field(default_factory=list, max_length=8)
 
 
 class ClarificationAction(DomainModel):
@@ -208,6 +224,8 @@ class POICandidate(DomainModel):
     longitude: float | None = Field(default=None, ge=-180, le=180)
     coordinate_source: str | None = None
     coordinates_verified: bool = False
+    source_document_ids: list[str] = Field(default_factory=list)
+    source_urls: list[str] = Field(default_factory=list)
 
 
 class HotelAreaCandidate(DomainModel):

@@ -348,6 +348,11 @@ class RuleBasedRevisionAgent:
             self._redistribute_items(revised)
         if "BUDGET_EXCEEDED" in error_codes:
             if phase1 and phase1.hotel_areas:
+                old_area_id = revised.hotel_area_id
+                prices = {
+                    option.area_id: option.nightly_price_hint
+                    for option in phase1.hotel_areas
+                }
                 cheapest = min(
                     phase1.hotel_areas,
                     key=lambda option: option.nightly_price_hint,
@@ -355,6 +360,12 @@ class RuleBasedRevisionAgent:
                 revised.hotel_area_id = cheapest.area_id
                 for day in revised.days:
                     day.hotel_option_id = cheapest.area_id
+                old_price = prices.get(old_area_id or "", cheapest.nightly_price_hint)
+                lodging_saving = max(
+                    old_price - cheapest.nightly_price_hint,
+                    0,
+                ) * revised.hotel_nights
+                revised.total_cost = max(revised.total_cost - lodging_saving, 0)
             self._reduce_ticket_cost(revised, entities)
         LangChainRevisionAgent._repair_schedule_with_opening_hours(revised)
         revised.assumptions = [

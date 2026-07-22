@@ -19,9 +19,14 @@ from app.tools.research import (
     XiaohongshuResearchTool,
 )
 from app.tools.registry import ToolRegistry
+from app.tools.knowledge import HybridKnowledgeSearchTool
+from app.vectorstore import ChromaTravelKnowledgeBase
 
 
-def build_live_tool_registry(settings: Settings) -> ToolRegistry:
+def build_live_tool_registry(
+    settings: Settings,
+    knowledge_base: ChromaTravelKnowledgeBase | None = None,
+) -> ToolRegistry:
     """Build only tools that may run in an end-user Agent request."""
     weather_provider = OpenMeteoWeatherProvider(
         base_url=settings.open_meteo_base_url,
@@ -44,6 +49,8 @@ def build_live_tool_registry(settings: Settings) -> ToolRegistry:
         ToolName.POI_COORDINATES: PoiCoordinateProviderTool(coordinate_provider),
         ToolName.ROUTE_MATRIX: RouteProviderTool(route_provider),
     }
+    if knowledge_base is not None:
+        tools[ToolName.KNOWLEDGE_SEARCH] = HybridKnowledgeSearchTool(knowledge_base)
     return ToolRegistry(tools)
 
 
@@ -59,7 +66,10 @@ def build_knowledge_research_registry(settings: Settings) -> ToolRegistry:
                 AgentReachWebFetch(cache=cache),
             ),
             limit=settings.agent_reach_result_limit,
-            fetch_top=settings.agent_reach_fetch_top,
+            fetch_top=max(
+                settings.agent_reach_fetch_top,
+                settings.agent_reach_result_limit,
+            ),
         )
     }
     if settings.xiaohongshu_enabled:

@@ -14,6 +14,9 @@ ALLOWED_CATEGORIES = {
     "pace", "budget_style", "food", "transport", "hotel", "activity", "avoidance", "tag"
 }
 SENSITIVE_MARKERS = {"身份证", "银行卡", "密码", "手机号", "支付", "病史", "疾病"}
+ONE_OFF_MARKERS = ("这次", "本次", "这趟", "本趟", "只去", "只玩", "只逛", "总预算")
+STABLE_MARKERS = ("以后", "通常", "一直", "每次", "总是", "习惯", "长期", "从不", "都喜欢")
+GENERIC_AVOIDANCES = {"其他景点", "其它景点", "别的景点"}
 
 
 def make_memory_candidate_node(
@@ -55,6 +58,7 @@ def _arguments(state: TravelState) -> dict:
 
 
 def _build_patch(state: TravelState, extraction: MemoryExtraction) -> TravelStatePatch:
+    query = _latest_query(state)
     accepted = [
         operation
         for operation in extraction.operations
@@ -62,6 +66,7 @@ def _build_patch(state: TravelState, extraction: MemoryExtraction) -> TravelStat
         and operation.evidence.strip()
         and not any(marker in operation.evidence for marker in SENSITIVE_MARKERS)
         and (operation.action == "delete" or operation.confidence >= 0.85)
+        and _is_durable_memory(operation, query)
     ]
     current = state.get("user_preferences") or UserPreferences()
     updated = _apply_operations(current, accepted)
@@ -79,6 +84,31 @@ def _build_patch(state: TravelState, extraction: MemoryExtraction) -> TravelStat
         ),
         "memory_errors": [],
     }
+
+
+def _latest_query(state: TravelState) -> str:
+    return next(
+        (
+            str(message.content)
+            for message in reversed(state.get("messages", []))
+            if isinstance(message, HumanMessage)
+        ),
+        "",
+    )
+
+
+def _is_durable_memory(operation, query: str) -> bool:
+    if operation.action == "delete":
+        return True
+    combined = f"{query}\n{operation.evidence}"
+    stable = any(marker in combined for marker in STABLE_MARKERS)
+    if any(marker in combined for marker in ONE_OFF_MARKERS) and not stable:
+        return False
+    if operation.category == "avoidance" and operation.value in GENERIC_AVOIDANCES:
+        return False
+    if operation.category == "budget_style" and not stable:
+        return False
+    return True
 
 
 def _apply_operations(preferences: UserPreferences, operations) -> UserPreferences:

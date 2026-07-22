@@ -213,16 +213,16 @@ class AgentReachWebFetch:
         self._runner = runner or _run_command
         self._cache = cache
 
-    def fetch(self, urls: list[str], *, max_characters: int = 3000) -> ToolResult:
+    def fetch(self, urls: list[str], *, max_characters: int = 50_000) -> ToolResult:
         normalized_urls = _validate_fetch_urls(urls)
         if isinstance(normalized_urls, ToolResult):
             return normalized_urls
-        if not 200 <= max_characters <= 10_000:
+        if not 200 <= max_characters <= 50_000:
             return ToolResult(
                 success=False,
                 source="agent-reach/exa-fetch",
                 data_mode=ToolDataMode.REALTIME,
-                data={"message": "max_characters 必须在 200 到 10000 之间"},
+                data={"message": "max_characters 必须在 200 到 50000 之间"},
                 error_code="RESEARCH_FETCH_LIMIT_INVALID",
                 retryable=False,
             )

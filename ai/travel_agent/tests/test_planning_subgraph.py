@@ -11,6 +11,8 @@ from app.domain.models import (
     NextAction,
     Phase1Research,
     POICandidate,
+    ToolName,
+    ToolResult,
     TransportCandidate,
     TravelEntities,
 )
@@ -74,6 +76,49 @@ def test_candidate_normalizer_avoids_full_area_plus_internal_poi_duplication() -
     assert [visit.visit_date for visit in normalized.selected_pois] == ["DAY_1", "DAY_2"]
 
 
+def test_candidate_validation_rejects_unavailable_placeholder_research() -> None:
+    research = Phase1Research(
+        data_mode="UNAVAILABLE",
+        destination="新疆",
+        weather_summary="天气服务不可用",
+        poi_candidates=[
+            POICandidate(
+                poi_id="AI-POI-1",
+                name="新疆第 1 项当地体验",
+                area="待核实区域",
+                suggested_duration_minutes=120,
+            )
+        ],
+        hotel_areas=[
+            HotelAreaCandidate(
+                area_id="AI-AREA-1",
+                name="新疆公共交通便利区域",
+                reason="待核实",
+            )
+        ],
+    )
+    patch = candidate_validation(
+        {
+            "phase1_research": research,
+            "candidate_selection": CandidateSelection(
+                selected_poi_ids=["AI-POI-1"],
+                selected_pois=[
+                    CandidateVisit(
+                        poi_id="AI-POI-1",
+                        visit_date="DAY_1",
+                        estimated_duration_minutes=120,
+                    )
+                ],
+                destinations=["AI-POI-1"],
+                hotel_area_id="AI-AREA-1",
+            ),
+        }
+    )
+
+    assert "PLACEHOLDER_RESEARCH_NOT_SAVEABLE" in patch["candidate_validation_errors"]
+    assert "UNGROUNDED_RESEARCH_NOT_SAVEABLE" in patch["candidate_validation_errors"]
+
+
 def test_complete_trip_request_generates_typed_plan_draft() -> None:
     result = build_travel_graph().invoke(
         {
@@ -129,8 +174,8 @@ def test_multistage_plan_uses_only_validated_research_candidates() -> None:
         for item in day.items
         if item.location_id
     }
-    assert result["phase1_research"].data_mode == "OFFLINE_FALLBACK"
-    assert result["phase2_research"].data_mode == "OFFLINE_FALLBACK"
+    assert result["phase1_research"].data_mode == "TEST_FIXTURE"
+    assert result["phase2_research"].data_mode == "TEST_FIXTURE"
     assert set(result["candidate_selection"].selected_poi_ids).issubset(
         {item.poi_id for item in result["phase1_research"].poi_candidates}
     )
@@ -254,3 +299,50 @@ def test_candidate_validator_rejects_ids_not_returned_by_research() -> None:
         "UNKNOWN_HOTEL_AREA:AREA-INVALID",
         "UNKNOWN_TRANSPORT_OPTION:FLIGHT-INVALID",
     ]
+
+
+def test_candidate_validator_does_not_force_irrelevant_knowledge_hit_usage() -> None:
+    research = Phase1Research(
+        data_mode="AI_KNOWLEDGE",
+        destination="成都",
+        weather_summary="多云",
+        poi_candidates=[
+            POICandidate(
+                poi_id="AI-POI-1",
+                name="武侯祠",
+                area="武侯区",
+                suggested_duration_minutes=120,
+            )
+        ],
+    )
+    patch = candidate_validation(
+        {
+            "phase1_research": research,
+            "candidate_selection": CandidateSelection(
+                selected_poi_ids=["AI-POI-1"],
+                selected_pois=[
+                    CandidateVisit(
+                        poi_id="AI-POI-1",
+                        visit_date="DAY_1",
+                        estimated_duration_minutes=120,
+                    )
+                ],
+                destinations=["AI-POI-1"],
+            ),
+            "tool_results": {
+                ToolName.KNOWLEDGE_SEARCH.value: ToolResult(
+                    success=True,
+                    data={
+                        "hits": [
+                            {
+                                "document_id": "xinjiang-guide",
+                                "text": "新疆七日游攻略",
+                            }
+                        ]
+                    },
+                )
+            },
+        }
+    )
+
+    assert patch["candidate_validation_errors"] == []

@@ -2,6 +2,7 @@ from app.graph.nodes.planning.assemble_phase1 import assemble_phase1_research
 from app.graph.nodes.planning.assemble_phase2 import assemble_phase2_research
 from app.graph.nodes.planning.candidate_selection import make_candidate_selection_node
 from app.graph.nodes.planning.candidate_validation import candidate_validation
+from app.graph.nodes.planning.code_repair import code_repair
 from app.graph.nodes.planning.budget_feasibility import check_budget_feasibility
 from app.graph.nodes.planning.direct_planner import make_direct_planner_node
 from app.graph.nodes.planning.failure import planning_failure
@@ -23,6 +24,7 @@ __all__ = [
     "assemble_phase1_research",
     "assemble_phase2_research",
     "candidate_validation",
+    "code_repair",
     "check_budget_feasibility",
     "make_direct_planner_node",
     "make_candidate_selection_node",

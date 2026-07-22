@@ -41,6 +41,12 @@ const routes = [
         meta: { title: '会话管理', icon: 'ChatLineRound' }
       },
       {
+        path: 'agent-runs',
+        name: 'AgentRunList',
+        component: () => import('../views/AgentRunList.vue'),
+        meta: { title: 'Agent 运行', icon: 'DataLine' }
+      },
+      {
         path: 'cities',
         name: 'CityList',
         component: () => import('../views/CityList.vue'),
@@ -69,6 +75,12 @@ const routes = [
         name: 'TripTemplateList',
         component: () => import('../views/TripTemplateList.vue'),
         meta: { title: '行程模板', icon: 'Collection' }
+      },
+      {
+        path: 'knowledge',
+        name: 'KnowledgePipeline',
+        component: () => import('../views/KnowledgePipeline.vue'),
+        meta: { title: '知识库更新', icon: 'DataAnalysis' }
       },
       {
         path: 'trip-plans',

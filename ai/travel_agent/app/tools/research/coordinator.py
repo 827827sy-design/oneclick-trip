@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import urlsplit, urlunsplit
 
 from app.domain.models import ToolDataMode, ToolResult
 from app.tools.research.agent_reach import AgentReachWebFetch, AgentReachWebSearch
@@ -86,6 +87,7 @@ class AgentReachResearchCoordinator:
         fetched = self._fetcher.fetch(urls)
         data = dict(enriched.data)
         data["fetch_result"] = fetched.model_dump(mode="json")
+        data["items"] = _merge_fetched_content(data.get("items", []), fetched)
         return enriched.model_copy(update={"data": data})
 
 
@@ -111,3 +113,40 @@ def _attempt_summaries(attempts: list[tuple[str, ToolResult]]) -> list[dict[str,
         }
         for query, result in attempts
     ]
+
+
+def _merge_fetched_content(
+    items: list[dict[str, object]],
+    fetched: ToolResult,
+) -> list[dict[str, object]]:
+    pages = (
+        {
+            _canonical_url(str(page.get("url") or "")): page
+            for page in fetched.data.get("pages", [])
+            if page.get("url") and page.get("content")
+        }
+        if fetched.success
+        else {}
+    )
+    merged = []
+    for item in items:
+        next_item = dict(item)
+        page = pages.get(_canonical_url(str(item.get("url") or "")))
+        if page:
+            next_item["content"] = str(page["content"]).strip()
+            next_item["content_source"] = "full_page"
+            next_item["fetched_title"] = page.get("title")
+        else:
+            next_item["content"] = str(item.get("summary") or "").strip()
+            next_item["content_source"] = "search_summary"
+        merged.append(next_item)
+    return merged
+
+
+def _canonical_url(value: str) -> str:
+    try:
+        parts = urlsplit(value.strip())
+        path = parts.path.rstrip("/") or "/"
+        return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), path, "", ""))
+    except ValueError:
+        return value.strip()

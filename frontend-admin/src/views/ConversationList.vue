@@ -77,6 +77,33 @@
           <el-descriptions-item label="消息数">{{ selectedConversation.messageCount }} 条</el-descriptions-item>
         </el-descriptions>
 
+        <section class="plan-version-panel">
+          <div class="section-heading">
+            <h4>关联行程版本</h4>
+            <el-tag size="small" type="info" effect="plain">{{ selectedPlanVersions.length }} 个版本</el-tag>
+          </div>
+          <el-table v-if="selectedPlanVersions.length" :data="selectedPlanVersions" size="small" border>
+            <el-table-column label="版本" width="88">
+              <template #default="{ row }">V{{ row.planVersion }}</template>
+            </el-table-column>
+            <el-table-column label="目的地" prop="destination" width="110" />
+            <el-table-column label="方案" min-width="190">
+              <template #default="{ row }">{{ row.plan?.title || row.planId }}</template>
+            </el-table-column>
+            <el-table-column label="状态" width="88">
+              <template #default="{ row }">
+                <el-tag :type="row.current ? 'success' : 'info'" size="small" effect="plain">
+                  {{ row.current ? '当前' : '历史' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="保存时间" min-width="155">
+              <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
+            </el-table-column>
+          </el-table>
+          <div v-else class="message-empty compact">该会话尚未保存行程方案</div>
+        </section>
+
         <div class="message-history">
           <h4>消息记录</h4>
           <div v-if="!selectedMessages.length" class="message-empty">这段会话还没有消息</div>
@@ -120,6 +147,7 @@ const filteredUserId = ref(route.query.userId || '')
 const drawerVisible = ref(false)
 const selectedConversation = ref(null)
 const selectedMessages = ref([])
+const selectedPlanVersions = ref([])
 let searchTimer = null
 
 onMounted(loadConversations)
@@ -154,6 +182,7 @@ async function viewDetail(row) {
     const data = await fetchConversation(row.id)
     selectedConversation.value = data.conversation
     selectedMessages.value = data.messages || []
+    selectedPlanVersions.value = data.planVersions || []
     drawerVisible.value = true
   } catch (error) {
     ElMessage.error(error.message || '加载会话详情失败')
@@ -197,6 +226,27 @@ function formatDate(value) {
 .message-history h4 {
   margin: 0 0 14px;
   font-size: 15px;
+}
+
+.plan-version-panel {
+  margin-bottom: 22px;
+}
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.section-heading h4 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.message-empty.compact {
+  padding: 24px 0;
+  border: 1px dashed var(--admin-border);
 }
 
 .admin-message {

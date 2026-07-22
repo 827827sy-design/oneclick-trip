@@ -203,6 +203,62 @@ def test_coordinator_recovers_official_sources_and_tracks_attempts() -> None:
     assert len(result.data["search_attempts"]) == 2
 
 
+def test_coordinator_merges_full_page_content_by_canonical_url() -> None:
+    class FakeSearch:
+        def search(self, query: str, *, limit: int = 5) -> ToolResult:
+            del query, limit
+            return ToolResult(
+                success=True,
+                source="fake-search",
+                data_mode=ToolDataMode.REALTIME,
+                data={
+                    "items": [
+                        {
+                            "title": "峨眉山完整攻略",
+                            "url": "https://example.com/guide?utm_source=search",
+                            "summary": "这是搜索摘要。",
+                            "platform": "web",
+                        },
+                        {
+                            "title": "抓取失败的资料",
+                            "url": "https://example.com/missing",
+                            "summary": "保留这段摘要。",
+                            "platform": "web",
+                        },
+                    ]
+                },
+            )
+
+    class FakeFetcher:
+        def fetch(self, urls: list[str]) -> ToolResult:
+            assert len(urls) == 2
+            return ToolResult(
+                success=True,
+                source="fake-fetch",
+                data_mode=ToolDataMode.REALTIME,
+                data={
+                    "pages": [
+                        {
+                            "title": "峨眉山完整攻略",
+                            "url": "https://example.com/guide",
+                            "content": "完整正文" * 1000,
+                        }
+                    ]
+                },
+            )
+
+    result = AgentReachResearchCoordinator(FakeSearch(), FakeFetcher()).research(
+        "峨眉山攻略",
+        limit=2,
+        fetch_top=2,
+    )
+
+    assert len(result.data["items"][0]["content"]) == 4000
+    assert result.data["items"][0]["content_source"] == "full_page"
+    assert result.data["items"][1]["content"] == "保留这段摘要。"
+    assert result.data["items"][1]["content_source"] == "search_summary"
+
+
 def test_web_fetch_rejects_private_network_urls() -> None:
     result = AgentReachWebFetch(executable="python").fetch(["http://127.0.0.1/admin"])
 

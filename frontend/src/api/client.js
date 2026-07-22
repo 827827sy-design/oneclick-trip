@@ -112,6 +112,15 @@ export const api = {
       body: JSON.stringify(payload)
     })
   },
+  tripPlans() {
+    return apiRequest('/api/trip-plans')
+  },
+  tripPlan(id) {
+    return apiRequest(`/api/trip-plans/${id}`)
+  },
+  aiTripPlan(recordId) {
+    return apiRequest(`/api/trip-plans/ai/${recordId}`)
+  },
   aiConversations() {
     return apiRequest('/api/ai/conversations')
   },
@@ -138,6 +147,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ conversationId: ensureAiConversationId(), message })
     })
+  },
+  aiChatAsync(message) {
+    return apiRequest('/api/ai/chat/async', {
+      method: 'POST',
+      body: JSON.stringify({ conversationId: ensureAiConversationId(), message })
+    })
+  },
+  aiJob(runId) {
+    return apiRequest(`/api/ai/jobs/${runId}`)
   },
   aiResume(confirmed) {
     return apiRequest('/api/ai/resume', {

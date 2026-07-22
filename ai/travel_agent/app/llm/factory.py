@@ -8,6 +8,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
 from app.agents.intent_agent import LangChainIntentAgent, RuleBasedIntentAgent
+from app.agents.intent_agent import enforce_code_owned_intent
 from app.agents.memory_agent import (
     LangChainMemoryCandidateAgent,
     RuleBasedMemoryCandidateAgent,
@@ -44,6 +45,7 @@ from app.agents.research_agent import (
     LangChainPhase2ResearchAgent,
     RuleBasedPhase1ResearchAgent,
     RuleBasedPhase2ResearchAgent,
+    UnavailablePhase1ResearchAgent,
 )
 from app.config import Settings
 
@@ -135,7 +137,7 @@ def build_agent_overrides(settings: Settings) -> AgentOverrides:
         ),
         phase1_research_agent=_FallbackPhase1ResearchAgent(
             LangChainPhase1ResearchAgent(flash_model),
-            RuleBasedPhase1ResearchAgent(),
+            UnavailablePhase1ResearchAgent(),
         ),
         phase2_research_agent=_FallbackPhase2ResearchAgent(
             LangChainPhase2ResearchAgent(pro_model),
@@ -202,10 +204,11 @@ class _FallbackIntentAgent:
             return await self._fallback.aclassify(query, context=context)
 
     def _guard_route(self, query: str, decision):
-        rule_decision = self._fallback.classify(query)
-        uncertain = decision.intent.value in {"unknown", "general_qa"}
-        explicit_route = rule_decision.intent.value not in {"unknown", "general_qa"}
-        return rule_decision if uncertain and explicit_route else decision
+        return enforce_code_owned_intent(
+            query,
+            decision,
+            rule_agent=self._fallback,
+        )
 
 
 class _FallbackClarificationAgent:
@@ -360,23 +363,45 @@ class _FallbackQueryPresenterAgent:
         entities,
         results,
         conversation_context=None,
+        tasks=None,
+        task_results=None,
     ):
         try:
+            if tasks is None and task_results is None:
+                return self._primary.present(
+                    query,
+                    intent,
+                    entities,
+                    results,
+                    conversation_context,
+                )
             return self._primary.present(
                 query,
                 intent,
                 entities,
                 results,
                 conversation_context,
+                tasks,
+                task_results,
             )
         except Exception as error:
             _log_fallback("query presenter", error)
+            if tasks is None and task_results is None:
+                return self._fallback.present(
+                    query,
+                    intent,
+                    entities,
+                    results,
+                    conversation_context,
+                )
             return self._fallback.present(
                 query,
                 intent,
                 entities,
                 results,
                 conversation_context,
+                tasks,
+                task_results,
             )
 
     async def apresent(
@@ -386,23 +411,45 @@ class _FallbackQueryPresenterAgent:
         entities,
         results,
         conversation_context=None,
+        tasks=None,
+        task_results=None,
     ):
         try:
+            if tasks is None and task_results is None:
+                return await self._primary.apresent(
+                    query,
+                    intent,
+                    entities,
+                    results,
+                    conversation_context,
+                )
             return await self._primary.apresent(
                 query,
                 intent,
                 entities,
                 results,
                 conversation_context,
+                tasks,
+                task_results,
             )
         except Exception as error:
             _log_fallback("query presenter", error)
+            if tasks is None and task_results is None:
+                return await self._fallback.apresent(
+                    query,
+                    intent,
+                    entities,
+                    results,
+                    conversation_context,
+                )
             return await self._fallback.apresent(
                 query,
                 intent,
                 entities,
                 results,
                 conversation_context,
+                tasks,
+                task_results,
             )
 
 

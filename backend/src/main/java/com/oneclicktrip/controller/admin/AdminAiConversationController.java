@@ -13,6 +13,7 @@ import com.oneclicktrip.entity.User;
 import com.oneclicktrip.mapper.AiConversationMapper;
 import com.oneclicktrip.mapper.AiMessageMapper;
 import com.oneclicktrip.mapper.UserMapper;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.LinkedHashMap;
@@ -28,17 +29,20 @@ public class AdminAiConversationController {
     private final AiMessageMapper messageMapper;
     private final UserMapper userMapper;
     private final ObjectMapper objectMapper;
+    private final JdbcTemplate jdbcTemplate;
 
     public AdminAiConversationController(
             AiConversationMapper conversationMapper,
             AiMessageMapper messageMapper,
             UserMapper userMapper,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            JdbcTemplate jdbcTemplate
     ) {
         this.conversationMapper = conversationMapper;
         this.messageMapper = messageMapper;
         this.userMapper = userMapper;
         this.objectMapper = objectMapper;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @GetMapping
@@ -99,6 +103,7 @@ public class AdminAiConversationController {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("conversation", conversationMap(conversation, user));
         result.put("messages", messages);
+        result.put("planVersions", planVersions(conversation.getConversationId()));
         return ApiResponse.ok(result);
     }
 
@@ -155,6 +160,29 @@ public class AdminAiConversationController {
         }
         data.put("agentState", state);
         return data;
+    }
+
+    private List<Map<String, Object>> planVersions(String conversationId) {
+        return jdbcTemplate.query("""
+                SELECT id, plan_id, plan_version, destination, plan_json, is_current, created_at
+                FROM ai_travel_plan_versions
+                WHERE conversation_id = ?
+                ORDER BY plan_version DESC, created_at DESC
+                """, (rs, rowNum) -> {
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("id", rs.getLong("id"));
+            data.put("planId", rs.getString("plan_id"));
+            data.put("planVersion", rs.getInt("plan_version"));
+            data.put("destination", rs.getString("destination"));
+            data.put("current", rs.getBoolean("is_current"));
+            data.put("createdAt", rs.getTimestamp("created_at"));
+            try {
+                data.put("plan", objectMapper.readTree(rs.getString("plan_json")));
+            } catch (Exception ignored) {
+                data.put("plan", null);
+            }
+            return data;
+        }, conversationId);
     }
 
     private boolean hasText(String value) {

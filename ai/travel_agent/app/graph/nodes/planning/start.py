@@ -19,5 +19,6 @@ def start_planning(_: TravelState) -> TravelStatePatch:
         "plan_saved": False,
         "validation_exhausted": False,
         "revision_count": 0,
+        "code_repair_attempted": False,
         "next_action": NextAction.PLANNING_FLOW,
     }

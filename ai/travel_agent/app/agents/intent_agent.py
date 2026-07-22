@@ -8,7 +8,34 @@ from typing import Protocol
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from app.domain.models import BudgetMode, BudgetScope, Intent, IntentContext, IntentDecision, TravelEntities
+from app.domain.models import (
+    BudgetMode,
+    BudgetScope,
+    Intent,
+    IntentContext,
+    IntentDecision,
+    IntentTask,
+    TravelEntities,
+)
+
+
+QUERY_INTENTS = {
+    Intent.WEATHER_QUERY,
+    Intent.HOTEL_QUERY,
+    Intent.TRANSPORT_QUERY,
+    Intent.GENERAL_QA,
+}
+
+CODE_OWNED_INTENTS = {
+    Intent.WEATHER_QUERY,
+    Intent.HOTEL_QUERY,
+    Intent.TRANSPORT_QUERY,
+    Intent.TRIP_PLAN,
+    Intent.MODIFY_PLAN,
+    Intent.BOOKING,
+    Intent.BOOKING_CONFIRM,
+    Intent.MEMORY_MANAGE,
+}
 
 
 class IntentAgent(Protocol):
@@ -59,6 +86,10 @@ class LangChainIntentAgent:
                     "你是‘一键游’的意图识别与槽位抽取 Agent。结合最近对话、长期偏好、当前方案和预订草稿理解指代，"
                     "但 entities 只提取用户本轮明确表达或明确补充的值，不得从记忆中伪造新槽位。"
                     "只输出结构化结果。intent 必须使用给定枚举，不要决定工作流，不要补造预算、人数、日期或选项 ID。"
+                    "tasks 用于列出本轮每个可独立回答的需求；一句话只有一个需求时也输出一个 task。"
+                    "天气、酒店、交通和普通问答可以拆成多个只读 task；每个 task 保留对应的原始问题片段和独立 entities。"
+                    "完整行程规划会覆盖天气、住宿、交通和景点研究，此时只输出一个 trip_plan task，不要重复拆分。"
+                    "修改、记忆管理、预订和预订确认属于受控主流程，不得与只读查询 task 混合执行。"
                     "本轮明确表达优先于历史信息。‘想去/准备去/计划去某地’属于 trip_plan；"
                     "只问天气、酒店、交通时分别使用 weather_query、hotel_query、transport_query。"
                     "普通旅游知识问答使用 general_qa，已有信息足够回答时不得为了画像补全而改成 trip_plan。"
@@ -69,6 +100,7 @@ class LangChainIntentAgent:
                     "预算区分 total/per_person，日期分别输出 start_date/end_date/days。"
                     "用户要求系统估算预算、表示不知道预算时，不要虚构 budget 数值；budget_mode 输出 estimate。"
                     "用户强调尽可能省、最低预算或穷游时，budget_mode 输出 minimize。"
+                    "时长中的‘一周/一个星期’按 7 天解析，‘两周/两个星期’按 14 天解析。"
                 )
             ),
             HumanMessage(content=f"会话上下文：{context_json}\n本轮用户输入：{query}"),
@@ -80,7 +112,7 @@ class RuleBasedIntentAgent:
 
     DESTINATION_NAMES = (
         "北京", "上海", "天津", "重庆", "成都", "峨眉山", "梵净山", "西安", "杭州", "大理", "广州", "深圳", "南京", "苏州",
-        "新疆", "乌鲁木齐", "喀什", "伊犁", "阿勒泰", "西藏", "拉萨", "云南", "昆明", "丽江", "香格里拉",
+        "新疆", "乌鲁木齐", "乌鲁木齐周边", "北疆环线", "南疆环线", "喀什", "伊犁", "阿勒泰", "西藏", "拉萨", "云南", "昆明", "丽江", "香格里拉",
         "四川", "贵州", "贵阳", "海南", "三亚", "海口", "青海", "西宁", "甘肃", "兰州", "敦煌", "内蒙古",
         "呼和浩特", "广西", "桂林", "福建", "厦门", "泉州", "长沙", "武汉", "哈尔滨", "长春", "沈阳",
         "济南", "青岛", "威海", "郑州", "洛阳", "合肥", "南昌", "福州",
@@ -108,8 +140,17 @@ class RuleBasedIntentAgent:
         text = query.strip()
         intent = self._detect_intent(text)
         entities = self._extract_entities(text, intent)
+        tasks = self.query_tasks(text, intent, entities)
+        if intent in QUERY_INTENTS and tasks:
+            intent = tasks[0].intent
+            entities = _merge_entities(entities, tasks[0].entities)
         confidence = 0.99 if intent is not Intent.GENERAL_QA else 0.75
-        return IntentDecision(intent=intent, entities=entities, confidence=confidence)
+        return IntentDecision(
+            intent=intent,
+            entities=entities,
+            confidence=confidence,
+            tasks=tasks,
+        )
 
     async def aclassify(
         self,
@@ -147,8 +188,12 @@ class RuleBasedIntentAgent:
             return Intent.MODIFY_PLAN
         if "行程" in text:
             return Intent.TRIP_PLAN
-        if re.search(r".+?(?:去|到|前往).+", text) and any(
-            marker in text for marker in ("天", "预算", "出发", "旅游", "旅行")
+        has_explicit_duration = bool(
+            re.search(r"(?:\d{1,2}|[一二两三四五六七八九十])\s*天", text)
+        )
+        if re.search(r".+?(?:去|到|前往).+", text) and (
+            has_explicit_duration
+            or any(marker in text for marker in ("预算", "出发", "旅游", "旅行"))
         ):
             return Intent.TRIP_PLAN
         if any(word in text for word in ("天气", "下雨", "温度", "气温")):
@@ -163,6 +208,68 @@ class RuleBasedIntentAgent:
             return Intent.TRIP_PLAN
         return Intent.GENERAL_QA
 
+    def query_tasks(
+        self,
+        text: str,
+        primary_intent: Intent | None = None,
+        shared_entities: TravelEntities | None = None,
+    ) -> list[IntentTask]:
+        primary = primary_intent or self._detect_intent(text)
+        shared = shared_entities or self._extract_entities(text, primary)
+        if primary not in QUERY_INTENTS:
+            return [
+                IntentTask(
+                    task_id="task-1",
+                    query=text,
+                    intent=primary,
+                    entities=shared,
+                )
+            ]
+
+        segments = _merge_query_modifiers([
+            item.strip(" ，,。；;：:")
+            for item in re.split(
+                r"[，,。；;]|(?:然后|再|顺便|同时|另外|并且|以及|还想|还要)",
+                text,
+            )
+            if item.strip(" ，,。；;：:")
+        ]) or [text]
+        tasks: list[IntentTask] = []
+        for segment in segments:
+            intents = self._query_intents_in_segment(segment)
+            for intent in intents:
+                local = self._extract_entities(segment, intent)
+                entities = _inherit_query_context(local, shared, intent)
+                tasks.append(
+                    IntentTask(
+                        task_id=f"task-{len(tasks) + 1}",
+                        query=segment,
+                        intent=intent,
+                        entities=entities,
+                    )
+                )
+        return tasks or [
+            IntentTask(
+                task_id="task-1",
+                query=text,
+                intent=primary,
+                entities=shared,
+            )
+        ]
+
+    def _query_intents_in_segment(self, text: str) -> list[Intent]:
+        intents: list[Intent] = []
+        if any(word in text for word in ("天气", "下雨", "温度", "气温")):
+            intents.append(Intent.WEATHER_QUERY)
+        if any(word in text for word in ("酒店", "住宿", "住哪里")):
+            intents.append(Intent.HOTEL_QUERY)
+        if any(word in text for word in ("高铁", "火车", "飞机", "机票", "怎么去", "交通")):
+            intents.append(Intent.TRANSPORT_QUERY)
+        if not intents:
+            detected = self._detect_intent(text)
+            intents.append(detected if detected in QUERY_INTENTS else Intent.GENERAL_QA)
+        return list(dict.fromkeys(intents))
+
     def _extract_entities(self, text: str, intent: Intent) -> TravelEntities:
         values: dict = {}
         cities = sorted((city for city in self.DESTINATION_NAMES if city in text), key=text.index)
@@ -172,6 +279,11 @@ class RuleBasedIntentAgent:
         )
         if len(cities) >= 2 and (intent is Intent.TRANSPORT_QUERY or has_explicit_direction):
             values["origin"], values["destination"] = cities[0], cities[-1]
+        elif len(cities) == 1 and re.search(
+            rf"(?:从|由)\s*{re.escape(cities[0])}\s*(?:出发|启程)",
+            text,
+        ):
+            values["origin"] = cities[0]
         elif cities:
             values["destination"] = cities[-1]
 
@@ -183,6 +295,15 @@ class RuleBasedIntentAgent:
         if days_match:
             raw_days = days_match.group(1)
             values["days"] = int(raw_days) if raw_days.isdigit() else self.CHINESE_NUMBERS[raw_days]
+        else:
+            week_match = re.search(
+                rf"{duration_number}\s*(?:个)?(?:周|星期)",
+                text,
+            )
+            if week_match:
+                raw_weeks = week_match.group(1)
+                weeks = int(raw_weeks) if raw_weeks.isdigit() else self.CHINESE_NUMBERS[raw_weeks]
+                values["days"] = weeks * 7
 
         people_match = re.search(r"(\d{1,3}|[一二两三四五六七八九十])\s*(?:个)?人", text)
         if people_match:
@@ -255,3 +376,101 @@ class RuleBasedIntentAgent:
         for year, month, day in re.findall(r"(?:(\d{4})年)?(\d{1,2})月(\d{1,2})[日号]", text):
             result.append(date(int(year) if year else date.today().year, int(month), int(day)))
         return result
+
+
+def infer_query_tasks(query: str) -> list[IntentTask]:
+    """Code-owned compound-query detection used to complement the LLM output."""
+    agent = RuleBasedIntentAgent()
+    primary = agent._detect_intent(query)
+    entities = agent._extract_entities(query, primary)
+    return agent.query_tasks(query, primary, entities)
+
+
+def _merge_query_modifiers(segments: list[str]) -> list[str]:
+    """Attach presentation and citation requirements to their query."""
+
+    merged: list[str] = []
+    modifier = re.compile(
+        r"^(?:请)?(?:并|同时|另外)?(?:标明|注明|附上|给出|列出|说明)"
+        r"(?:资料)?(?:来源|出处|链接|开放时间|理由|依据)"
+    )
+    for segment in segments:
+        if merged and modifier.search(segment):
+            merged[-1] = f"{merged[-1]}，{segment}"
+        else:
+            merged.append(segment)
+    return merged
+
+
+def enforce_code_owned_intent(
+    query: str,
+    decision: IntentDecision,
+    *,
+    rule_agent: RuleBasedIntentAgent | None = None,
+) -> IntentDecision:
+    """Keep explicit business routes deterministic while retaining LLM entities.
+
+    The model is useful for open-ended language and destinations outside the
+    rule dictionary. It must not redirect explicit weather, booking, modify or
+    planning commands into another valid-but-wrong flow.
+    """
+    rules = rule_agent or RuleBasedIntentAgent()
+    rule_decision = rules.classify(query)
+    compound_query = (
+        len(rule_decision.tasks) > 1
+        and all(task.intent in QUERY_INTENTS for task in rule_decision.tasks)
+    )
+    model_overplanned_read_only_query = (
+        decision.intent is Intent.TRIP_PLAN
+        and rule_decision.intent in QUERY_INTENTS
+    )
+    should_use_code_route = (
+        decision.intent is Intent.UNKNOWN
+        or compound_query
+        or model_overplanned_read_only_query
+        or rule_decision.intent in CODE_OWNED_INTENTS
+    )
+    if not should_use_code_route:
+        return decision
+
+    merged_entities = _merge_entities(decision.entities, rule_decision.entities)
+    guarded_tasks = [
+        task.model_copy(
+            update={
+                "entities": _merge_entities(merged_entities, task.entities),
+            }
+        )
+        for task in rule_decision.tasks
+    ]
+    return rule_decision.model_copy(
+        update={
+            "entities": merged_entities,
+            "tasks": guarded_tasks,
+            "confidence": max(decision.confidence, rule_decision.confidence),
+        }
+    )
+
+
+def _inherit_query_context(
+    local: TravelEntities,
+    shared: TravelEntities,
+    intent: Intent,
+) -> TravelEntities:
+    update = local.model_dump(exclude_unset=True)
+    for field in ("destination", "start_date", "end_date", "days", "currency"):
+        if not update.get(field) and getattr(shared, field) is not None:
+            update[field] = getattr(shared, field)
+    if intent is Intent.TRANSPORT_QUERY:
+        for field in ("origin", "destination"):
+            if not update.get(field) and getattr(shared, field) is not None:
+                update[field] = getattr(shared, field)
+    return TravelEntities(**update)
+
+
+def _merge_entities(base: TravelEntities, preferred: TravelEntities) -> TravelEntities:
+    update = {
+        key: value
+        for key, value in preferred.model_dump(exclude_unset=True).items()
+        if value not in (None, [], "")
+    }
+    return base.model_copy(update=update)

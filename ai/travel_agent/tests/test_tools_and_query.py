@@ -6,6 +6,7 @@ from app.memory.checkpoints import InMemoryCheckpointBackend
 from app.tools.contracts import ToolContext
 from app.tools.executor import ToolExecutor
 from app.tools.mock_tools import build_mock_tool_registry, weather_tool
+from app.tools.registry import ToolRegistry
 from app.tools.selector import ToolSelector
 
 
@@ -34,6 +35,90 @@ def test_weather_query_executes_only_weather_tool() -> None:
     assert "成都预计多云" in result["messages"][-1].content
 
 
+def test_compound_query_executes_task_tools_and_aggregates_results() -> None:
+    registry = build_mock_tool_registry()
+    result = build_travel_graph(tool_registry=registry).invoke(
+        {
+            "conversation_id": "query-compound",
+            "user_id": "user-compound",
+            "messages": [
+                HumanMessage(content="查成都明天天气，顺便推荐两家酒店")
+            ],
+        }
+    )
+
+    assert [task.intent for task in result["intent_tasks"]] == [
+        Intent.WEATHER_QUERY,
+        Intent.HOTEL_QUERY,
+    ]
+    assert result["selected_tools"] == ["weather", "hotel_search"]
+    assert set(result["query_task_results"]["task-1"]) == {"weather"}
+    assert set(result["query_task_results"]["task-2"]) == {"hotel_search"}
+    assert "### 天气" in result["messages"][-1].content
+    assert "### 住宿" in result["messages"][-1].content
+
+
+def test_compound_query_records_an_unconfigured_tool_instead_of_dropping_task() -> None:
+    registry = ToolRegistry({ToolName.WEATHER: weather_tool})
+    result = build_travel_graph(tool_registry=registry).invoke(
+        {
+            "conversation_id": "query-compound-partial-registry",
+            "user_id": "user-compound-partial-registry",
+            "messages": [
+                HumanMessage(content="查成都明天天气，顺便推荐两家酒店")
+            ],
+        }
+    )
+
+    assert result["selected_tools"] == ["weather"]
+    assert result["query_task_results"]["task-1"]["weather"].success is True
+    hotel_result = result["query_task_results"]["task-2"]["hotel_search"]
+    assert hotel_result.success is False
+    assert hotel_result.error_code == "TOOL_NOT_CONFIGURED"
+    assert any(
+        error.tool_name == "hotel_search"
+        and error.error_code == "TOOL_NOT_CONFIGURED"
+        for error in result["tool_errors"]
+    )
+    assert "### 天气" in result["messages"][-1].content
+    assert "### 住宿" in result["messages"][-1].content
+
+
+def test_single_query_without_registered_tool_keeps_explicit_failure_result() -> None:
+    result = build_travel_graph(tool_registry=ToolRegistry()).invoke(
+        {
+            "conversation_id": "query-hotel-empty-registry",
+            "user_id": "user-hotel-empty-registry",
+            "messages": [HumanMessage(content="推荐成都酒店")],
+        }
+    )
+
+    assert result["intent"] is Intent.HOTEL_QUERY
+    assert result["selected_tools"] == []
+    unavailable = result["query_task_results"]["task-1"]["hotel_search"]
+    assert unavailable.success is False
+    assert unavailable.error_code == "TOOL_NOT_CONFIGURED"
+    assert result["next_action"] is NextAction.QUERY_FLOW
+
+
+def test_two_weather_tasks_keep_their_own_destinations() -> None:
+    registry = build_mock_tool_registry()
+    result = build_travel_graph(tool_registry=registry).invoke(
+        {
+            "conversation_id": "query-two-weather-cities",
+            "user_id": "user-two-weather-cities",
+            "messages": [
+                HumanMessage(content="查成都明天天气，再查北京后天天气")
+            ],
+        }
+    )
+
+    tasks = result["intent_tasks"]
+    assert [task.entities.destination for task in tasks] == ["成都", "北京"]
+    assert result["query_task_results"]["task-1"]["weather"].data["destination"] == "成都"
+    assert result["query_task_results"]["task-2"]["weather"].data["destination"] == "北京"
+
+
 def test_planning_uses_weather_interface_and_ai_research_stages() -> None:
     result = build_travel_graph().invoke(
         {
@@ -47,9 +132,9 @@ def test_planning_uses_weather_interface_and_ai_research_stages() -> None:
 
     assert result["selected_tools"] == ["weather"]
     assert set(result["tool_results"]) == {"weather"}
-    assert result["phase1_research"].data_mode == "OFFLINE_FALLBACK"
+    assert result["phase1_research"].data_mode == "TEST_FIXTURE"
     assert result["candidate_selection"] is not None
-    assert result["phase2_research"].data_mode == "OFFLINE_FALLBACK"
+    assert result["phase2_research"].data_mode == "TEST_FIXTURE"
     assert result["plan_draft"] is not None
 
 

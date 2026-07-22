@@ -1,6 +1,6 @@
 # OneClick Trip Agent
 
-基于 LangGraph 的“旅游一条龙”Agent。当前完成 **Phase 8 基础设施** 和 **B-01 真实旅游工具平台**，下一阶段进入 B-02 知识数据清洗与入库。
+基于 LangGraph 的“旅游一条龙”Agent。当前已完成 B-01 工具平台、B-02 知识管道和 B-03 Java 安全持久化主链路。
 
 ## 当前数据策略
 
@@ -9,7 +9,7 @@
 - 完整规划恢复 Dify V3 的两阶段结构：DeepSeek 宽搜候选，代码校验候选来源，再由 DeepSeek 精查路线、开放时间与门票参考。
 - 酒店建议、交通建议、景点、美食和方案修改不调用 Mock 研究工具；模型知识与实时接口数据在 State 中明确区分。
 - 模型生成内容属于 AI 通用知识建议，不冒充实时搜索结果；价格、班次、营业时间、余量等必须在接入真实供应商后再确认。
-- 酒店、火车、飞机和门票已经定义可替换 Provider 契约，但未配置真实供应商前不会返回伪造库存或价格。酒店预订仍保留 Java Backend Mock，用于演示草稿、确认和幂等流程。
+- 酒店、火车、飞机和门票已经定义可替换 Provider 契约，但未配置真实供应商前不会返回伪造库存或价格。预订仍不执行真实交易，但草稿、确认 token hash、方案绑定和幂等状态已经由 Java 后端负责。
 - 直接构建测试图时仍可注入 Mock Registry；正式 `create_app()` 默认装配真实 Provider Registry。
 
 ## V3 原型业务总结
@@ -146,7 +146,7 @@ booking_slot_guard
 
 草稿创建与 `interrupt()` 位于不同节点，因此恢复执行不会重复创建草稿。确认时再次校验 `user_id`、`conversation_id`、`plan_id` 和 `plan_version`；草稿过期、方案版本变化或选项不属于当前方案时均不会提交。LangGraph State 和中断载荷不包含 token、hash、支付信息或供应商订单号。
 
-默认使用可测试的 `RuleBasedIntentAgent`；正式模型通过 `LangChainIntentAgent` 注入，并使用 Pydantic structured output。模型只提出结构化意图，缺失槽位、流程路由和工具白名单均由代码决定。Query、Planning、Modify 与 Booking 均为编译后的 SubGraph。
+默认使用可测试的 `RuleBasedIntentAgent`；正式模型通过 `LangChainIntentAgent` 注入，并使用 Pydantic structured output。输出同时包含主意图和最多 8 个 `IntentTask`。天气、酒店、交通和普通问答可以拆成任务级查询并通过 `Send` 并行执行；完整规划会吸收这些研究需求，修改、记忆和预订仍保持单一受控主流程。模型返回 `unknown` 或漏掉明显复合查询时由代码规则修复。缺失槽位、流程路由和工具白名单均由代码决定。Query、Planning、Modify 与 Booking 均为编译后的 SubGraph。
 
 项目保留 `weather`、`hotel_search`、`train_search`、`flight_search`、`poi_search`、`poi_coordinates`、`route_matrix`、`opening_hours`、`ticket` 的统一 `ToolResult` 契约。当前用户运行时启用 Open-Meteo、Nominatim 和 OSRM；其余阶段由模型生成 `AI_KNOWLEDGE` 研究数据，绝不标记为实时价格、班次或余量，以后可逐项替换为合规 Provider。
 
@@ -168,6 +168,7 @@ Phase 8 将有效方案保存为 `PersistedPlanState`，其中包含 `TravelPlan
 | `messages` | `AnyMessage` 列表，使用 LangGraph `add_messages` reducer |
 | `intent` | 严格 `Intent` 枚举 |
 | `intent_confidence` | IntentAgent 置信度，仅用于观测，不直接控制路由 |
+| `intent_tasks` | 本轮可独立回答的结构化子任务，各自保存问题片段、意图和实体 |
 | `entities` | `TravelEntities`，包含日期、人数、预算范围和币种 |
 | `user_preferences` | MySQL 长期偏好快照 |
 | `effective_preferences` | 本轮明确需求覆盖长期偏好后的运行时画像 |
@@ -191,6 +192,7 @@ Phase 8 将有效方案保存为 `PersistedPlanState`，其中包含 `TravelPlan
 | `selected_tools` | 本轮通过代码白名单选择并执行过的工具 |
 | `pending_tools`, `active_tool` | `Send` 动态分发使用的瞬时字段 |
 | `tool_results` | `ToolResult` 映射，支持并行结果合并 reducer |
+| `query_task_results` | 按 `task_id -> tool_name` 隔离的查询结果，避免多城市并行查询串数据 |
 | `tool_errors` | 结构化错误列表 |
 | `tool_attempts` | 每个工具本轮实际调用次数，最大为 2 |
 | `tool_abort_requested` | 必要工具失败后的代码中止标记 |
@@ -209,7 +211,7 @@ Phase 8 将有效方案保存为 `PersistedPlanState`，其中包含 `TravelPlan
 
 | 组件 | 职责 |
 | --- | --- |
-| IntentAgent | 已实现：结构化意图与实体抽取，不直接调用工具或决定图节点 |
+| IntentAgent | 已实现：主意图、复合只读子任务与实体抽取，并用代码守卫修复 `unknown`，不直接调用工具或决定图节点 |
 | MemoryCandidateAgent | 已实现：按 Dify V3 Prompt 提取稳定习惯，经代码隐私/置信度门禁后写入 MySQL |
 | Supervisor | 已实现：根据 Intent、代码槽位守卫和固定映射进行条件路由 |
 | Phase1ResearchAgent | 已实现：生成天气上下文、住宿区域、交通方式和景点候选宽搜结果 |
@@ -221,7 +223,7 @@ Phase 8 将有效方案保存为 `PersistedPlanState`，其中包含 `TravelPlan
 | RevisionAgent | 已实现：根据校验反馈修订时间、住宿晚数和可削减票价项目，最多两轮 |
 | ModifyAnalyzerAgent | 已实现：提取目标日、时段、替换景点、预算变化、删除标签和交换日期 |
 | ModifyAgent | 已实现：复制当前方案、应用修改、刷新工具结果并生成 `version + 1` 草稿 |
-| ToolSelector | 已实现：单项查询按意图执行代码白名单，未知或越权工具不会执行 |
+| ToolSelector | 已实现：每个查询子任务独立执行代码白名单，未知或越权工具不会执行 |
 | ToolRegistry | 已实现：注册 Mock/真实 Provider 适配器，并区分实时能力；不允许 Agent 直接调用任意函数 |
 | ToolExecutor | 已实现：统一执行、异常封装、尝试次数和错误记录 |
 | ToolErrorHandler | 已实现：最多一次重试，并执行 fallback/continue/abort 策略 |
@@ -397,5 +399,7 @@ NOMINATIM_USER_AGENT=oneclick-trip/0.8 (educational travel agent)
 - [x] Phase 8：MySQL 方案/偏好仓储、普通 Redis Checkpoint、Chroma 持久化与 Memory Flow
 - [x] Phase 9（第一部分）：DeepSeek V4 Flash/Pro、结构化输出、规则 Agent 容错回退
 - [x] B-01（第一部分）：统一 ToolResult 元数据、Provider 契约、Open-Meteo 天气、OSRM 路线、真实/Mock 能力隔离
+- [x] B-02：Pandas 清洗、人工审核、混合检索、BGE 向量与 Chroma 发布
+- [x] B-03：JWT 身份边界、Java 偏好/方案仓库、订单草稿、token hash 与幂等确认
 
-下一步继续 B-01：选择合规的酒店、铁路、航班和门票数据供应商，完成各 Provider Adapter 与缓存、限流和监控；随后进入 B-02 Pandas 数据清洗与标准化。
+下一阶段进入 B-04 管理后台与可观测性；酒店、铁路、航班和门票真实供应商仍按需要逐步替换 Provider。

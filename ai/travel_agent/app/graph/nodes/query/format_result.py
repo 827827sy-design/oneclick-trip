@@ -28,6 +28,8 @@ def make_format_query_result_node(
             state.get("entities") or TravelEntities(),
             state.get("tool_results", {}),
             _conversation_context(state),
+            state.get("intent_tasks", []),
+            state.get("query_task_results", {}),
         )
         return {"messages": [AIMessage(content=reply)]}
 
@@ -41,6 +43,8 @@ def make_format_query_result_node(
             state.get("entities") or TravelEntities(),
             state.get("tool_results", {}),
             _conversation_context(state),
+            state.get("intent_tasks", []),
+            state.get("query_task_results", {}),
         )
         return {"messages": [AIMessage(content=reply)]}
 

@@ -91,7 +91,8 @@ class RuleBasedReviewerAgent:
                 issues.append(f"PACE_MISMATCH:{day.day_index}")
                 suggestions.append(f"第 {day.day_index} 天最多安排两个主要活动。")
 
-        score = max(0, 100 - len(issues) * 20)
+        warning_penalty = min(30, len(hard_validation.warnings) * 5)
+        score = max(0, 100 - len(issues) * 20 - warning_penalty)
         return ReviewResult(
             verdict=ReviewVerdict.REVISE if issues else ReviewVerdict.PASS,
             score=score,
@@ -170,6 +171,10 @@ class LangChainReviewerAgent:
                     "不得用常识推翻工具返回的开放时间。"
                     "hard_pass 为 true 时，只有空白日、明确偏好冲突或明显节奏失衡才应 revise；"
                     "一般优化建议应保持 verdict=pass 并写入 suggestions。"
+                    "省域或跨城市行程中，180 至 360 分钟的单次转场不应仅因时长直接判 revise；"
+                    "若当天不超过两个主要活动且总活动时间不超过 600 分钟，应保留 pass 并把长转场写入 suggestions。"
+                    "评分必须反映硬校验 warnings：存在未确认的营业时间、门票或景点详情时不得给 100 分，"
+                    "每项风险建议扣 5 分，累计最多扣 30 分。"
                     "只输出 JSON，不要使用 Markdown。输出必须符合以下 JSON Schema："
                     f"{json.dumps(ReviewResult.model_json_schema(), ensure_ascii=False)}"
                 )

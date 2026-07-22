@@ -23,6 +23,13 @@ class Settings:
     deepseek_base_url: str
     deepseek_flash_model: str
     deepseek_pro_model: str
+    business_backend: str
+    java_backend_base_url: str
+    java_internal_service_secret: str
+    chroma_server_url: str | None = None
+    embedding_backend: str = "bge-small-zh-v1.5"
+    bge_model_directory: Path = PROJECT_ROOT / ".data/models/bge-small-zh-v1.5"
+    bge_auto_download: bool = False
     tool_http_timeout_seconds: float = 10.0
     open_meteo_base_url: str = "https://api.open-meteo.com/v1"
     open_meteo_geocoding_url: str = "https://geocoding-api.open-meteo.com/v1"
@@ -51,6 +58,10 @@ def load_settings(env_file: Path | None = None) -> Settings:
     load_dotenv(env_file or PROJECT_ROOT / ".env", override=False)
     raw_chroma_path = Path(os.getenv("CHROMA_PERSIST_DIRECTORY", ".data/chroma"))
     chroma_path = raw_chroma_path if raw_chroma_path.is_absolute() else PROJECT_ROOT / raw_chroma_path
+    raw_bge_path = Path(
+        os.getenv("BGE_MODEL_DIRECTORY", ".data/models/bge-small-zh-v1.5")
+    )
+    bge_path = raw_bge_path if raw_bge_path.is_absolute() else PROJECT_ROOT / raw_bge_path
     return Settings(
         app_env=os.getenv("APP_ENV", "development"),
         infra_mode=os.getenv("INFRA_MODE", "memory").lower(),
@@ -62,6 +73,20 @@ def load_settings(env_file: Path | None = None) -> Settings:
         deepseek_base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
         deepseek_flash_model=os.getenv("DEEPSEEK_FLASH_MODEL", "deepseek-v4-flash"),
         deepseek_pro_model=os.getenv("DEEPSEEK_PRO_MODEL", "deepseek-v4-pro"),
+        business_backend=os.getenv("BUSINESS_BACKEND", "java").lower(),
+        java_backend_base_url=os.getenv(
+            "JAVA_BACKEND_BASE_URL", "http://127.0.0.1:8080"
+        ).rstrip("/"),
+        java_internal_service_secret=os.getenv(
+            "AI_INTERNAL_SERVICE_SECRET", "oneclick-trip-internal-dev-secret"
+        ),
+        chroma_server_url=os.getenv("CHROMA_SERVER_URL") or None,
+        embedding_backend=os.getenv(
+            "EMBEDDING_BACKEND", "bge-small-zh-v1.5"
+        ).lower(),
+        bge_model_directory=bge_path,
+        bge_auto_download=os.getenv("BGE_AUTO_DOWNLOAD", "false").lower()
+        in {"1", "true", "yes", "on"},
         tool_http_timeout_seconds=float(os.getenv("TOOL_HTTP_TIMEOUT_SECONDS", "10")),
         open_meteo_base_url=os.getenv(
             "OPEN_METEO_BASE_URL", "https://api.open-meteo.com/v1"

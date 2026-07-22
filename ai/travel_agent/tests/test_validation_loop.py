@@ -15,6 +15,7 @@ from app.domain.models import (
     POIVisitDetail,
     ReviewResult,
     ReviewVerdict,
+    RouteLeg,
     TravelEntities,
     TravelPlan,
 )
@@ -166,6 +167,91 @@ def test_hard_validator_rejects_duplicate_poi_across_days() -> None:
 
     assert result.hard_pass is False
     assert "DUPLICATE_POI" in {issue.code for issue in result.errors}
+
+
+def test_hard_validator_rejects_placeholder_itinerary_items() -> None:
+    plan = TravelPlan(
+        plan_id="PLAN-PLACEHOLDER",
+        version=1,
+        destination="新疆",
+        hotel_nights=0,
+        days=[
+            ItineraryDay(
+                day_index=1,
+                items=[
+                    ItineraryItem(
+                        item_id="D1-I1",
+                        name="新疆第 1 项当地体验",
+                        start_time=time(9, 0),
+                        end_time=time(11, 0),
+                    )
+                ],
+            )
+        ],
+    )
+
+    result = HardValidator().validate(
+        plan,
+        TravelEntities(destination="新疆", days=1),
+        None,
+    )
+
+    assert result.hard_pass is False
+    assert "PLACEHOLDER_ITINERARY_ITEM" in {issue.code for issue in result.errors}
+
+
+def test_hard_validator_warns_for_regional_transfer_without_rejecting_it() -> None:
+    plan = TravelPlan(
+        plan_id="PLAN-REGIONAL-TRANSFER",
+        version=1,
+        destination="伊犁",
+        hotel_nights=0,
+        days=[
+            ItineraryDay(
+                day_index=1,
+                items=[
+                    ItineraryItem(
+                        item_id="D1-I1",
+                        name="那拉提草原",
+                        location_id="POI-NALATI",
+                        start_time=time(12, 0),
+                        end_time=time(16, 0),
+                        travel_minutes=210,
+                        visit_minutes=240,
+                    )
+                ],
+            )
+        ],
+    )
+    phase2 = Phase2Research(
+        route_legs=[
+            RouteLeg(
+                from_id="伊宁市",
+                to_id="POI-NALATI",
+                distance_km=250,
+                duration_minutes=210,
+            )
+        ],
+        poi_details=[
+            POIVisitDetail(
+                poi_id="POI-NALATI",
+                opening_hours="08:00-20:00",
+                available=True,
+            )
+        ],
+    )
+
+    result = HardValidator().validate(
+        plan,
+        TravelEntities(destination="伊犁", days=1),
+        phase2,
+    )
+
+    assert result.hard_pass is True
+    assert {issue.code for issue in result.warnings} >= {
+        "LONG_TRANSFER_DAY",
+        "LONG_ROUTE_TRANSFER",
+    }
 
 
 def test_revision_repairs_opening_hours_and_small_budget_estimate_margin() -> None:

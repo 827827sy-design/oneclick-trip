@@ -22,6 +22,7 @@ class AiAssistantServiceTest {
     private FastApiAgentClient agentClient;
     private AiCallLogMapper logMapper;
     private AiConversationService conversationService;
+    private AgentRunLogService agentRunLogService;
     private AiAssistantService service;
 
     @BeforeEach
@@ -29,7 +30,14 @@ class AiAssistantServiceTest {
         agentClient = mock(FastApiAgentClient.class);
         logMapper = mock(AiCallLogMapper.class);
         conversationService = mock(AiConversationService.class);
-        service = new AiAssistantService(agentClient, logMapper, conversationService);
+        agentRunLogService = mock(AgentRunLogService.class);
+        service = new AiAssistantService(
+                agentClient,
+                logMapper,
+                conversationService,
+                agentRunLogService,
+                objectMapper
+        );
     }
 
     @Test
@@ -74,15 +82,84 @@ class AiAssistantServiceTest {
                   "interrupted": true
                 }
                 """);
-        when(agentClient.resume("conversation-2", "demo-user", true)).thenReturn(state);
+        when(agentClient.resume("conversation-2", "42", true)).thenReturn(state);
 
         AiChatResponse response = service.resume(
                 new AiResumeRequest(null, "conversation-2", true),
-                null
+                42L
         );
 
         assertThat(response.status()).isEqualTo("WAITING_CONFIRMATION");
         assertThat(response.interrupted()).isTrue();
         assertThat(response.message()).contains("预订草稿");
+    }
+
+    @Test
+    void anonymousAiRequestIsRejectedBeforeCallingFastApi() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.chat(
+                        new AiChatRequest(99L, "conversation-private", "成都天气"),
+                        null
+                ))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class)
+                .hasMessageContaining("需要登录");
+    }
+
+    @Test
+    void asyncJobCannotBeReadByAnotherAuthenticatedUser() throws Exception {
+        JsonNode accepted = objectMapper.readTree("""
+                {"run_id":"run-private","conversation_id":"conversation-private","status":"QUEUED"}
+                """);
+        when(agentClient.startRun("conversation-private", "42", "成都天气"))
+                .thenReturn(accepted);
+        service.startChat(
+                new AiChatRequest(99L, "conversation-private", "成都天气"),
+                42L
+        );
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.job("run-private", 43L))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class)
+                .hasMessageContaining("无权查看");
+    }
+
+    @Test
+    void asyncChatReturnsImmediatelyAndPersistsTheCompletedResultOnce() throws Exception {
+        JsonNode accepted = objectMapper.readTree("""
+                {
+                  "run_id": "run-async-1",
+                  "conversation_id": "conversation-async-1",
+                  "status": "QUEUED"
+                }
+                """);
+        JsonNode completed = objectMapper.readTree("""
+                {
+                  "run_id": "run-async-1",
+                  "conversation_id": "conversation-async-1",
+                  "status": "COMPLETED",
+                  "progress": 100,
+                  "result": {
+                    "conversation_id": "conversation-async-1",
+                    "intent": "weather_query",
+                    "next_action": "complete",
+                    "reply": "成都明天多云。",
+                    "interrupted": false
+                  }
+                }
+                """);
+        when(agentClient.startRun("conversation-async-1", "42", "成都明天天气怎么样？"))
+                .thenReturn(accepted);
+        when(agentClient.runJob("run-async-1", "42")).thenReturn(completed);
+
+        JsonNode started = service.startChat(
+                new AiChatRequest(null, "conversation-async-1", "成都明天天气怎么样？"),
+                42L
+        );
+        JsonNode firstPoll = service.job("run-async-1", 42L);
+        JsonNode secondPoll = service.job("run-async-1", 42L);
+
+        assertThat(started.path("run_id").asText()).isEqualTo("run-async-1");
+        assertThat(firstPoll.path("response").path("message").asText()).contains("成都明天多云");
+        assertThat(secondPoll.path("response").path("status").asText()).isEqualTo("COMPLETED");
+        verify(agentClient).startRun("conversation-async-1", "42", "成都明天天气怎么样？");
+        verify(logMapper).insert(org.mockito.ArgumentMatchers.any(AiCallLog.class));
     }
 }

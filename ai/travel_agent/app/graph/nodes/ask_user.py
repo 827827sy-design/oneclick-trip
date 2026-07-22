@@ -121,6 +121,7 @@ def _clarification_actions(
 
     builders = {
         "destination": _destination_actions,
+        "destination_detail": _destination_detail_actions,
         "duration": _duration_actions,
         "people": _people_actions,
         "budget": _budget_actions,
@@ -129,6 +130,7 @@ def _clarification_actions(
     }
     prompts = {
         "destination": "先选一个目的地，也可以输入其他城市",
+        "destination_detail": "这个范围很大，先选这次主要想玩的城市或区域",
         "duration": "旅行准备玩几天？具体日期也可以直接输入",
         "people": "这次一共几个人出发？",
         "budget": "选一个总预算，也可以直接输入其他金额",
@@ -148,6 +150,21 @@ def _destination_actions() -> list[ClarificationAction]:
         _action("destination-xiamen", "destination", "厦门", "我想去厦门"),
         _action("destination-xian", "destination", "西安", "我想去西安"),
         _action("destination-dali", "destination", "大理", "我想去大理"),
+    ]
+
+
+def _destination_detail_actions() -> list[ClarificationAction]:
+    return [
+        _action(
+            "destination-urumqi-area",
+            "destination_detail",
+            "乌鲁木齐周边",
+            "这次主要玩乌鲁木齐周边",
+            recommended=True,
+        ),
+        _action("destination-ili", "destination_detail", "伊犁", "这次主要玩伊犁"),
+        _action("destination-kashgar", "destination_detail", "喀什", "这次主要玩喀什"),
+        _action("destination-altay", "destination_detail", "阿勒泰", "这次主要玩阿勒泰"),
     ]
 
 

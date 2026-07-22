@@ -15,12 +15,14 @@ from app.domain.models import (
     ClarificationReply,
     HardValidationResult,
     Intent,
+    IntentTask,
     MemoryExtraction,
     MemoryOperation,
     ModifyAnalysis,
     NextAction,
     Phase1Research,
     Phase2Research,
+    QueryToolCall,
     ReviewResult,
     SelectedOptions,
     ToolError,
@@ -37,6 +39,19 @@ def merge_tool_results(
 ) -> dict[str, ToolResult]:
     merged = dict(current or {})
     merged.update(update or {})
+    return merged
+
+
+def merge_query_task_results(
+    current: Mapping[str, Mapping[str, ToolResult]] | None,
+    update: Mapping[str, Mapping[str, ToolResult]] | None,
+) -> dict[str, dict[str, ToolResult]]:
+    merged = {
+        task_id: dict(results)
+        for task_id, results in (current or {}).items()
+    }
+    for task_id, results in (update or {}).items():
+        merged.setdefault(task_id, {}).update(results)
     return merged
 
 
@@ -74,6 +89,9 @@ class TravelState(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], add_messages]
     intent: Intent
     intent_confidence: float
+    intent_tasks: list[IntentTask]
+    query_tool_calls: list[QueryToolCall]
+    active_query_task: IntentTask | None
     entities: TravelEntities
     missing_fields: list[str]
     clarification_reply: ClarificationReply | None
@@ -104,6 +122,10 @@ class TravelState(TypedDict, total=False):
     pending_tools: list[str]
     active_tool: str | None
     tool_results: Annotated[dict[str, ToolResult], merge_tool_results]
+    query_task_results: Annotated[
+        dict[str, dict[str, ToolResult]],
+        merge_query_task_results,
+    ]
     tool_errors: Annotated[list[ToolError], merge_tool_errors]
     tool_attempts: Annotated[dict[str, int], merge_tool_attempts]
     tool_abort_requested: Annotated[bool, merge_abort_flag]
@@ -113,6 +135,7 @@ class TravelState(TypedDict, total=False):
     booking_interrupted: bool
     booking_completed: bool
     revision_count: int
+    code_repair_attempted: bool
     next_action: NextAction
     checkpoint_version: int
 
@@ -127,6 +150,9 @@ def build_initial_state(conversation_id: str, user_id: str) -> TravelState:
         "messages": [],
         "intent": Intent.UNKNOWN,
         "intent_confidence": 0.0,
+        "intent_tasks": [],
+        "query_tool_calls": [],
+        "active_query_task": None,
         "entities": TravelEntities(),
         "missing_fields": [],
         "clarification_reply": None,
@@ -157,6 +183,7 @@ def build_initial_state(conversation_id: str, user_id: str) -> TravelState:
         "pending_tools": [],
         "active_tool": None,
         "tool_results": {},
+        "query_task_results": {},
         "tool_errors": [],
         "tool_attempts": {},
         "tool_abort_requested": False,
@@ -166,6 +193,7 @@ def build_initial_state(conversation_id: str, user_id: str) -> TravelState:
         "booking_interrupted": False,
         "booking_completed": False,
         "revision_count": 0,
+        "code_repair_attempted": False,
         "next_action": NextAction.LOAD_USER_MEMORY,
         "checkpoint_version": 0,
     }

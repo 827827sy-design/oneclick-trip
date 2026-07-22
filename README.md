@@ -8,10 +8,14 @@
 docs/project-structure.md
 ```
 
-当前阶段完成度、下一阶段目标和双人开发分工见：
+AI 工具平台和知识加工阶段说明见：
 
 ```text
-docs/stage-summary-and-task-allocation.md
+docs/B-01-tool-platform.md
+docs/B-02-knowledge-pipeline.md
+docs/B-03-java-security-persistence.md
+docs/B-04-admin-observability.md
+docs/B-05-integration-environment.md
 ```
 
 ## 已完成的非 AI 闭环
@@ -26,6 +30,11 @@ docs/stage-summary-and-task-allocation.md
 - FastAPI 真实天气与城市解析接口
 - Vue 3 前端界面，沿用之前的小程序原型视觉
 - 个人资料页：修改昵称、选择头像、退出登录
+- B-01 真实工具平台：Open-Meteo、Nominatim、OSRM 与统一工具契约
+- B-02 管理端知识管道：Pandas 清洗去重、质量审核和 Chroma 发布
+- B-03 Java 安全与持久化：JWT 身份边界、偏好与方案版本接口、订单草稿和幂等确认
+- B-04 管理后台与可观测性：运行日志、节点耗时、失败排障、会话方案版本
+- B-05 集成环境与测试：MySQL/Redis/Chroma Compose、环境模板、启动验证和跨服务合同测试
 
 ## 运行方式
 
@@ -129,6 +138,9 @@ PUT  /api/users/me
 POST /api/trip-plans/generate
 GET  /api/trip-plans/{id}
 POST /api/ai/chat
+GET  /api/admin/knowledge/stats
+POST /api/admin/knowledge/preview
+POST /api/admin/knowledge/batches/{batchId}/publish
 GET  http://127.0.0.1:8001/tools/weather
 ```
 

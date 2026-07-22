@@ -16,7 +16,7 @@ public class AiClientConfig {
             RestClientBuilderConfigurer configurer,
             @Value("${AI_SERVICE_BASE_URL:http://127.0.0.1:8000}") String baseUrl,
             @Value("${AI_SERVICE_CONNECT_TIMEOUT:3s}") Duration connectTimeout,
-            @Value("${AI_SERVICE_READ_TIMEOUT:90s}") Duration readTimeout
+            @Value("${AI_SERVICE_READ_TIMEOUT:120s}") Duration readTimeout
     ) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(connectTimeout);

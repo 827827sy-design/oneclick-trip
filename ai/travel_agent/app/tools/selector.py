@@ -5,9 +5,11 @@ from app.domain.models import Intent, ToolName, TravelEntities
 
 INTENT_TOOL_ALLOWLIST: dict[Intent, frozenset[ToolName]] = {
     Intent.WEATHER_QUERY: frozenset({ToolName.WEATHER}),
-    Intent.HOTEL_QUERY: frozenset(),
-    Intent.TRANSPORT_QUERY: frozenset(),
-    Intent.GENERAL_QA: frozenset(),
+    Intent.HOTEL_QUERY: frozenset({ToolName.HOTEL_SEARCH}),
+    Intent.TRANSPORT_QUERY: frozenset(
+        {ToolName.TRAIN_SEARCH, ToolName.FLIGHT_SEARCH}
+    ),
+    Intent.GENERAL_QA: frozenset({ToolName.KNOWLEDGE_SEARCH}),
 }
 
 PHASE1_TOOL_ALLOWLIST: frozenset[ToolName] = frozenset(
@@ -30,12 +32,23 @@ class ToolSelector:
         entities: TravelEntities,
         requested_tools: list[str] | None = None,
     ) -> list[ToolName]:
+        return self._available(
+            self.eligible_for_query(intent, entities, requested_tools)
+        )
+
+    def eligible_for_query(
+        self,
+        intent: Intent,
+        entities: TravelEntities,
+        requested_tools: list[str] | None = None,
+    ) -> list[ToolName]:
+        """Return code-allowed tools before provider availability filtering."""
         allowed = INTENT_TOOL_ALLOWLIST.get(intent, frozenset())
         defaults = sorted(allowed, key=str)
         selected = self._filter(requested_tools, allowed) if requested_tools else defaults
         if intent is Intent.TRANSPORT_QUERY and not entities.origin:
             return []
-        return self._available(selected)
+        return selected
 
     def for_planning_phase1(
         self,
